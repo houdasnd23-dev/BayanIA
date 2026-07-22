@@ -19,3 +19,5 @@ bayania-backend/uploads/
 # Docker / logs
 *.log
 .DS_Store
+
+desktop.ini
