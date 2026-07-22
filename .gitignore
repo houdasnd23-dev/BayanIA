@@ -1,0 +1,21 @@
+# Frontend (bayania/)
+bayania/node_modules/
+bayania/.next/
+bayania/.env.local
+bayania/.env
+
+# Backend (bayania-backend/)
+bayania-backend/__pycache__/
+bayania-backend/**/__pycache__/
+bayania-backend/*.pyc
+bayania-backend/.env
+bayania-backend/venv/
+bayania-backend/env/
+
+# Uploads / données
+bayania-backend/uploads/
+*.pdf
+
+# Docker / logs
+*.log
+.DS_Store
