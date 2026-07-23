@@ -290,4 +290,3 @@ export const sourcesApi = {
       method: "GET",
     }),
 };
-
