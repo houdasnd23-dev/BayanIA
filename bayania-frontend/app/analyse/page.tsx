@@ -288,7 +288,7 @@ function AnalyseContent() {
         </div>
       </main>
 
-      <Footer />
+      
     </div>
   );
 }

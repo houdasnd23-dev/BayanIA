@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Navbar from "@/components/layout/Navbar";
-import Footer from "@/components/layout/Footer";
+
 import {
   ShieldCheck,
   LayoutGrid,
@@ -17,6 +16,8 @@ import {
   Clock,
   Network,
   Boxes,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 import {
   adminApi,
@@ -81,6 +82,9 @@ export default function AdminPage() {
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   async function loadData() {
     try {
       const [docs, userList] = await Promise.all([
@@ -126,6 +130,24 @@ export default function AdminPage() {
     }
   };
 
+  const handleDelete = async (id: number, titre: string) => {
+    const confirmed = window.confirm(
+      `Supprimer "${titre}" ? Cette action est irréversible et retirera aussi ses vecteurs de l'index RAG.`
+    );
+    if (!confirmed) return;
+
+    setDeleteError(null);
+    setDeletingId(id);
+    try {
+      await adminApi.deleteDocument(id);
+      await loadData();
+    } catch (err: any) {
+      setDeleteError(err.message || "Échec de la suppression du document");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const stats = [
     { icon: Library, value: documents.length.toString(), label: "Documents importés" },
     { icon: Users, value: users.length.toString(), label: "Utilisateurs inscrits" },
@@ -155,7 +177,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-surface-muted">
-      <Navbar />
+      
 
       <div className="flex-1 max-w-[1600px] w-full mx-auto grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-0">
         {/* Sidebar admin */}
@@ -280,6 +302,12 @@ export default function AdminPage() {
                   </div>
                 </div>
 
+                {deleteError && (
+                  <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600 mb-3">
+                    {deleteError}
+                  </div>
+                )}
+
                 {loadingData && <p className="text-sm text-navy-400 py-4">Chargement...</p>}
 
                 {!loadingData && documents.length === 0 && (
@@ -295,11 +323,13 @@ export default function AdminPage() {
                           <th className="text-left font-medium pb-2">Catégorie</th>
                           <th className="text-left font-medium pb-2">Statut</th>
                           <th className="text-left font-medium pb-2">Importé le</th>
+                          <th className="text-right font-medium pb-2"></th>
                         </tr>
                       </thead>
                       <tbody>
                         {documents.map((d) => {
                           const meta = statusMeta(d.statut_indexation);
+                          const isDeleting = deletingId === d.id_importation;
                           return (
                             <tr key={d.id_importation} className="border-b border-surface-border last:border-0">
                               <td className="py-3 pr-3">
@@ -322,11 +352,25 @@ export default function AdminPage() {
                                   {meta.label}
                                 </span>
                               </td>
-                              <td className="py-3 text-xs text-navy-400 whitespace-nowrap">
+                              <td className="py-3 pr-3 text-xs text-navy-400 whitespace-nowrap">
                                 <span className="inline-flex items-center gap-1.5">
                                   <Clock size={12} />
                                   {formatDate(d.date_importation)}
                                 </span>
+                              </td>
+                              <td className="py-3 text-right">
+                                <button
+                                  onClick={() => handleDelete(d.id_importation, d.titre_document)}
+                                  disabled={isDeleting}
+                                  title="Supprimer ce document"
+                                  className="text-red-400 hover:text-red-600 disabled:opacity-50 transition-colors"
+                                >
+                                  {isDeleting ? (
+                                    <Loader2 size={15} className="animate-spin" />
+                                  ) : (
+                                    <Trash2 size={15} />
+                                  )}
+                                </button>
                               </td>
                             </tr>
                           );
@@ -487,7 +531,6 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <Footer />
     </div>
   );
 }

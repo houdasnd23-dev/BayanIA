@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   postgres:
     image: postgres:15-alpine
@@ -16,6 +15,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: bayania-qdrant
@@ -25,13 +25,11 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-     test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
-     interval: 5s
-     timeout: 5s
-     retries: 5
-    
-   
-      
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: ..
@@ -48,12 +46,12 @@ services:
       - JWT_ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=60
       - QDRANT_URL=http://qdrant:6333
-      - LLM_PROVIDER=mock
-      - LLM_API_KEY=
-      - LLM_API_URL=https://api.openai.com/v1
+      - LLM_PROVIDER=gemini
+      - LLM_API_KEY=${GEMINI_API_KEY}
+      - LLM_API_URL=https://generativelanguage.googleapis.com/v1beta
       - LLM_MODEL=gemini-3.5-flash
-      - RAG_TOP_K=3
-      - RAG_MIN_SCORE=0.3
+      - RAG_TOP_K=4
+      - RAG_MIN_SCORE=0.5
       - UPLOAD_DIR=/workspace/uploads
     depends_on:
       postgres:
@@ -62,10 +60,13 @@ services:
         condition: service_healthy
     volumes:
       - uploads_data:/workspace/uploads
+      - C:/Users/DELL/.cache/huggingface:/root/.cache/huggingface
     env_file:
-      - .env   # chemin relatif au docker-compose.yml, donc docker/.env
+      - .env
+
 volumes:
   postgres_data:
   qdrant_data:
   uploads_data:
-   
+  huggingface_cache:
+  

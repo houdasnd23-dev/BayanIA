@@ -10,17 +10,15 @@ from app.core.database import AsyncSessionLocal
 from app.core.exceptions import register_exception_handlers
 from app.core.rate_limit import limiter
 from app.models.profil import Profil
-from app.routers import auth, questions, sources, admin
+from app.routers import auth, questions, sources, admin, documents
 from app.routers import users
+from app.services.embedding_service import EmbeddingService
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-
 async def seed_profiles():
-    """
-    Seeds the DB with default profiles if they don't exist yet.
-    """
     logger.info("Checking and seeding default profiles...")
     try:
         async with AsyncSessionLocal() as session:
@@ -34,37 +32,61 @@ async def seed_profiles():
             await session.commit()
     except Exception as e:
         logger.error(f"Error seeding default profiles: {str(e)}")
-        
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Run database seeds
     await seed_profiles()
+    # Précharge le modèle d'embedding une seule fois au démarrage
+    EmbeddingService.get_model()
     yield
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Backend de la plateforme d'assistance juridique intelligente (BayanIA)",
     version="1.0.0",
     lifespan=lifespan
 )
+
 # CORS middleware configuration
+# Includes: Next.js desktop frontend, Android emulator, Expo Go, physical device on LAN
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",       # Frontend Next.js (desktop)
+    "http://localhost:8081",       # Expo dev server
+    "http://localhost:19000",      # Expo Go
+    "http://localhost:19006",      # Expo web
+    "http://10.0.2.2:3000",        # Android emulator → host machine Next.js
+    "http://10.0.2.2:8081",        # Android emulator → Expo dev server
+    "http://192.168.1.15:3000",    # Physical device on local LAN
+    "http://192.168.1.15:8081",    # Physical device on local LAN
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Frontend Next.js
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 # SlowAPI Rate Limiter state and handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Centralized exception handlers registration
 register_exception_handlers(app)
+
 # Include routers
 app.include_router(auth.router)
 app.include_router(questions.router)
 app.include_router(sources.router)
 app.include_router(admin.router)
 app.include_router(users.router)
+app.include_router(documents.router)
+
+
 @app.get("/")
 async def health_check():
     return {

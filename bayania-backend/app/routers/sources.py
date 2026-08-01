@@ -11,6 +11,7 @@ from typing import List
 from app.schemas.source import SourceSearchResult
 from app.services.embedding_service import EmbeddingService
 from app.services.qdrant_service import QdrantService
+from fastapi import Query
 router = APIRouter(prefix="/sources", tags=["Sources Juridiques"])
 @router.get("/search", response_model=List[SourceSearchResult])
 async def search_sources(
@@ -25,6 +26,16 @@ async def search_sources(
     hits = await QdrantService.search_similar(query_vector)
     return hits
 
+
+@router.get("/search", response_model=List[SourceSearchResult])
+async def search_sources(
+    query: str = Query(..., min_length=2, description="Texte de recherche"),
+    top_k: int = Query(default=None, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+):
+    query_vector = await EmbeddingService.get_embedding(query)
+    hits = await QdrantService.search_similar(query_vector, top_k=top_k)
+    return hits
 
 @router.get("/{id}", response_model=SourceJuridiqueResponse)
 async def get_source(

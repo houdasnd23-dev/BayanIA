@@ -1,3 +1,4 @@
+#gere importation des docs
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
@@ -50,7 +51,11 @@ class IngestionService:
                 await db.refresh(source)
                 
             # 4. Generate embeddings for all chunks
-            texts_to_embed = [s.contenu_texte for s in db_sources]
+            # 4. Generate embeddings for all chunks
+# On enrichit le texte UNIQUEMENT pour l'embedding (meilleur signal sémantique
+# sur les articles courts) — le texte affiché/stocké (contenu_texte) reste inchangé.
+            texts_to_embed = [f"{s.titre_document} — Article {s.numero_article} : {s.contenu_texte}"
+               for s in db_sources]
             embeddings = await EmbeddingService.get_embeddings(texts_to_embed)
             
             # 5. Format and upsert points in Qdrant
@@ -64,7 +69,8 @@ class IngestionService:
                         "type_source": source.type_source,
                         "titre_document": source.titre_document,
                         "numero_article": source.numero_article,
-                        "contenu_texte": source.contenu_texte
+                        "contenu_texte": source.contenu_texte,
+                        "statut_validite": source.statut_validite 
                     }
                 })
                 # Upsert into Qdrant

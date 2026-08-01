@@ -1,3 +1,4 @@
+#cintient les dependances FastAPI reutlisable
 from fastapi import Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession

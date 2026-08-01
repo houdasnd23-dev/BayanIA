@@ -15,6 +15,10 @@ from pypdf import PdfReader
 from app.models.importation_document import ImportationDocument
 from app.schemas.source import ImportationDocumentDetailResponse
 from app.core.exceptions import InvalidRequestException
+import tempfile
+import os
+import asyncio
+from app.services.pdf_extraction import extract_text_docling
 router = APIRouter(prefix="/admin", tags=["Admin Panel"])
 
 @router.post(
@@ -52,6 +56,9 @@ async def list_users(
     stmt = select(User).options(selectinload(User.profil))
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+
 @router.post(
     "/documents/upload",
     response_model=ImportationDocumentResponse,
@@ -64,27 +71,27 @@ async def upload_document(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Uploads a PDF file, extracts its text, then ingests it
-    (chunking, embedding, indexing in Qdrant).
-    """
     if not file.filename.lower().endswith(".pdf"):
         raise InvalidRequestException("Seuls les fichiers PDF sont acceptés")
 
-    reader = PdfReader(file.file)
-    contenu_texte = ""
-    for page in reader.pages:
-        contenu_texte += (page.extract_text() or "") + "\n"
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+
+    try:
+        loop = asyncio.get_running_loop()
+        contenu_texte = await loop.run_in_executor(
+              None, lambda: extract_text_docling(tmp_path, force_ocr=True)
+            )
+    finally:
+        os.unlink(tmp_path)  # nettoyage systématique, même en cas d'erreur
 
     if not contenu_texte.strip():
         raise InvalidRequestException("Impossible d'extraire du texte de ce PDF")
 
     return await IngestionService.ingest_document(
-        db=db,
-        titre_document=titre_document,
-        type_source=type_source,
-        contenu_texte=contenu_texte
-    )   
+        db=db, titre_document=titre_document, type_source=type_source, contenu_texte=contenu_texte
+    )
 @router.get(
     "/documents",
     response_model=List[ImportationDocumentDetailResponse],
@@ -119,3 +126,38 @@ async def list_documents(
             )
         )
     return response   
+@router.delete(
+    "/documents/{id_importation}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role(["administrateur"]))]
+)
+async def delete_document(
+    id_importation: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Supprime un document importé : ses chunks en base PostgreSQL
+    (cascade automatique via la relation ImportationDocument.sources)
+    et les vecteurs correspondants dans Qdrant.
+    """
+    stmt = (
+        select(ImportationDocument)
+        .options(selectinload(ImportationDocument.sources))
+        .where(ImportationDocument.id_importation == id_importation)
+    )
+    result = await db.execute(stmt)
+    importation = result.scalar_one_or_none()
+
+    if not importation:
+        raise NotFoundException("Document non trouvé")
+
+    # Récupère les IDs des chunks pour les supprimer aussi de Qdrant
+    source_ids = [s.id_source for s in importation.sources]
+
+    if source_ids:
+        await QdrantService.delete_points(source_ids)
+
+    # Cascade="all, delete-orphan" sur la relation supprime aussi
+    # automatiquement les lignes sources_juridiques associées
+    await db.delete(importation)
+    await db.commit()

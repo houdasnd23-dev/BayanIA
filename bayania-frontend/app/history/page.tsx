@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Navbar from "@/components/layout/Navbar";
-import Footer from "@/components/layout/Footer";
 import { Search, Filter, MessageSquare, Plus } from "lucide-react";
 import { questionsApi, QuestionResponse } from "@/src/lib/api";
 
@@ -42,7 +40,7 @@ export default function HistoryPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-surface-muted">
-      <Navbar />
+      
 
       <main className="flex-1 px-6 py-10 lg:px-10">
         <div className="mx-auto max-w-6xl">
@@ -128,7 +126,6 @@ export default function HistoryPage() {
         </div>
       </main>
 
-      <Footer />
     </div>
   );
 }

@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Navbar from "@/components/layout/Navbar";
-import Footer from "@/components/layout/Footer";
 import { Filter, Bookmark, FileText, ChevronRight, Search as SearchIcon } from "lucide-react";
 import { sourcesApi, SourceSearchResult } from "@/src/lib/api";
 
@@ -35,7 +33,7 @@ export default function SearchPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-surface-muted">
-      <Navbar />
+      
 
       <main className="flex-1 bg-[#F8FAFC] pb-12">
         <div className="border-b border-slate-200 bg-white px-8 py-10 text-center">
@@ -194,7 +192,7 @@ export default function SearchPage() {
         </div>
       </main>
 
-      <Footer />
+      
     </div>
   );
 }

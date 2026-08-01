@@ -45,9 +45,21 @@ async function request(endpoint: string, options: RequestInit = {}) {
     },
   });
 
+  if (res.status === 401) {
+    clearToken();
+    if (typeof window !== "undefined") {
+      window.location.href = "/connexion";
+    }
+    throw new Error("Session expirée, veuillez vous reconnecter.");
+  }
+
   if (!res.ok) {
     const errorData = await res.json().catch(() => null);
     throw new Error(extractErrorMessage(errorData));
+  }
+
+  if (res.status === 204) {
+    return null;  // pas de corps à parser
   }
 
   return res.json();
@@ -266,6 +278,11 @@ export const adminApi = {
 
   listDocuments: (): Promise<ImportationDocumentDetail[]> =>
     request("/admin/documents", { method: "GET" }),
+
+  deleteDocument: (idImportation: number): Promise<void> =>
+    request(`/admin/documents/${idImportation}`, {
+      method: "DELETE",
+    }),
 };
 export interface ImportationDocumentDetail {
   id_importation: number;
@@ -289,4 +306,26 @@ export const sourcesApi = {
     request(`/sources/search?query=${encodeURIComponent(query)}`, {
       method: "GET",
     }),
+};
+
+export interface ClauseRisque {
+  clause: string;
+  niveau_risque: string;
+  explication: string;
+}
+
+export interface AnalyseDocumentResponse {
+  resume: string;
+  clauses_risque: ClauseRisque[];
+  conformite: string;
+  recommandations: string[];
+}
+
+export const documentsApi = {
+  analysePdf: (file: File, instructions: string): Promise<AnalyseDocumentResponse> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("instructions", instructions);
+    return requestFormData("/documents/analyse-pdf", formData);
+  },
 };

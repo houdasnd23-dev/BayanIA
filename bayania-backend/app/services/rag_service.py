@@ -47,7 +47,15 @@ class RAGService:
             result = await db.execute(stmt)
             cited_sources = list(result.scalars().all())
             
-        # 5. Calculate confidence score
-        confidence_score = ConfidenceService.calculate_score(response_text, rag_hits)
-        
-        return response_text, cited_sources, confidence_score
+            # 5. Calculate confidence score
+        confidence = await ConfidenceService.calculate_score(
+            response_text=response_text,
+            retrieved_sources=rag_hits,
+        )
+
+        # 6. Return response, cited sources and confidence value
+        return (
+            response_text,
+            cited_sources,
+            confidence["confidence"],
+        )

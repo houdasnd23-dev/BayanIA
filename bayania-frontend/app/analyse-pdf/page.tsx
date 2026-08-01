@@ -3,8 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Navbar from "@/components/layout/Navbar";
-import Footer from "@/components/layout/Footer";
+
 import {
   FileText,
   UploadCloud,
@@ -14,16 +13,25 @@ import {
   X,
   Sparkles,
   ArrowLeft,
+  ShieldAlert,
+  ListChecks,
 } from "lucide-react";
-import { questionsApi, ReponseIAResponse, PieceJointe, getToken } from "@/src/lib/api";
+import { documentsApi, AnalyseDocumentResponse, getToken } from "@/src/lib/api";
 
 const DEFAULT_INSTRUCTIONS =
   "Analyse ce document juridique : résume les points clés, identifie les clauses à risque et vérifie sa conformité au droit marocain.";
 
-type Step = "idle" | "creating" | "uploading" | "analyzing" | "done" | "error";
+type Step = "idle" | "analyzing" | "done" | "error";
 
-function normalizeScore(score: number) {
-  return score <= 1 ? score * 100 : score;
+function riskBadgeClasses(niveau: string) {
+  const n = niveau.toLowerCase();
+  if (n.includes("élevé") || n.includes("eleve") || n.includes("high")) {
+    return "text-red-600 bg-red-50 border-red-200";
+  }
+  if (n.includes("moyen") || n.includes("medium")) {
+    return "text-amber-600 bg-amber-50 border-amber-200";
+  }
+  return "text-emerald-600 bg-emerald-50 border-emerald-200";
 }
 
 export default function AnalysePdfPage() {
@@ -33,8 +41,7 @@ export default function AnalysePdfPage() {
   const [dragActive, setDragActive] = useState(false);
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [attachment, setAttachment] = useState<PieceJointe | null>(null);
-  const [reponse, setReponse] = useState<ReponseIAResponse | null>(null);
+  const [analyse, setAnalyse] = useState<AnalyseDocumentResponse | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -72,8 +79,7 @@ export default function AnalysePdfPage() {
     setInstructions("");
     setStep("idle");
     setError(null);
-    setAttachment(null);
-    setReponse(null);
+    setAnalyse(null);
   };
 
   const handleAnalyze = async () => {
@@ -81,19 +87,12 @@ export default function AnalysePdfPage() {
     setError(null);
 
     try {
-      setStep("creating");
-      const question = await questionsApi.create(
-        instructions.trim() || DEFAULT_INSTRUCTIONS,
-        "pro"
-      );
-
-      setStep("uploading");
-      const piece = await questionsApi.uploadPieceJointe(question.id_question, file);
-      setAttachment(piece);
-
       setStep("analyzing");
-      const result = await questionsApi.getReponse(question.id_question);
-      setReponse(result);
+      const result = await documentsApi.analysePdf(
+        file,
+        instructions.trim() || DEFAULT_INSTRUCTIONS
+      );
+      setAnalyse(result);
       setStep("done");
     } catch (err: any) {
       setError(err.message || "Une erreur est survenue pendant l'analyse.");
@@ -101,11 +100,11 @@ export default function AnalysePdfPage() {
     }
   };
 
-  const isProcessing = step === "creating" || step === "uploading" || step === "analyzing";
+  const isProcessing = step === "analyzing";
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <Navbar />
+      
 
       <main className="flex-1 bg-surface-muted py-10 px-6 lg:px-10">
         <div className="max-w-3xl mx-auto">
@@ -200,9 +199,7 @@ export default function AnalysePdfPage() {
                 {isProcessing ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    {step === "creating" && "Envoi de la demande..."}
-                    {step === "uploading" && "Envoi du fichier..."}
-                    {step === "analyzing" && "Analyse en cours..."}
+                    Analyse en cours...
                   </>
                 ) : (
                   <>
@@ -215,55 +212,78 @@ export default function AnalysePdfPage() {
           )}
 
           {/* --- Étape 2 : résultat --- */}
-          {step === "done" && reponse && (
+          {step === "done" && analyse && (
             <div className="space-y-6">
+              {/* Résumé */}
               <div className="rounded-2xl border border-surface-border bg-white p-6">
-                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                  <p className="flex items-center gap-2 text-sm font-semibold text-navy-600">
-                    <Sparkles size={15} className="text-navy-600" />
-                    Rapport d'analyse
-                  </p>
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-status-success bg-status-successBg rounded-full px-2.5 py-1">
-                    <CheckCircle2 size={11} />
-                    Confiance : {normalizeScore(reponse.score_confiance).toFixed(1)}%
-                  </span>
-                </div>
-
-                {attachment && (
-                  <div className="flex items-center gap-2 rounded-lg bg-surface-muted px-3 py-2 mb-4 text-xs text-navy-500">
-                    <FileText size={14} />
-                    {attachment.nom_fichier}
-                  </div>
-                )}
-
+                <p className="flex items-center gap-2 text-sm font-semibold text-navy-600 mb-4">
+                  <Sparkles size={15} className="text-navy-600" />
+                  Résumé du document
+                </p>
                 <p className="text-sm text-navy-500 leading-relaxed whitespace-pre-line">
-                  {reponse.texte_reponse}
+                  {analyse.resume}
                 </p>
               </div>
 
-              {reponse.sources.length > 0 && (
-                <div className="rounded-2xl border border-surface-border bg-white p-6">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-navy-300 mb-3">
-                    Sources consultées ({reponse.sources.length})
-                  </p>
+              {/* Clauses à risque */}
+              <div className="rounded-2xl border border-surface-border bg-white p-6">
+                <p className="flex items-center gap-2 text-sm font-semibold text-navy-600 mb-4">
+                  <ShieldAlert size={15} className="text-navy-600" />
+                  Clauses à risque ({analyse.clauses_risque.length})
+                </p>
+
+                {analyse.clauses_risque.length === 0 ? (
+                  <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5">
+                    <CheckCircle2 size={15} className="shrink-0" />
+                    Aucune clause à risque identifiée.
+                  </div>
+                ) : (
                   <div className="space-y-3">
-                    {reponse.sources.map((s) => (
-                      <div key={s.id_source} className="flex items-start gap-2.5">
-                        <FileText size={14} className="text-navy-300 shrink-0 mt-0.5" />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-navy-500 bg-surface-muted rounded px-1.5 py-0.5">
-                              {s.type_source}
-                            </span>
-                            {s.numero_article && (
-                              <span className="text-[10px] text-navy-300">Art. {s.numero_article}</span>
-                            )}
-                          </div>
-                          <p className="text-xs font-medium text-navy-600 leading-snug">{s.titre_document}</p>
+                    {analyse.clauses_risque.map((c, idx) => (
+                      <div key={idx} className="rounded-lg border border-surface-border p-3.5">
+                        <div className="flex items-start justify-between gap-3 mb-1.5">
+                          <p className="text-sm font-medium text-navy-600">{c.clause}</p>
+                          <span
+                            className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 border ${riskBadgeClasses(
+                              c.niveau_risque
+                            )}`}
+                          >
+                            {c.niveau_risque}
+                          </span>
                         </div>
+                        <p className="text-xs text-navy-400 leading-relaxed">{c.explication}</p>
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+
+              {/* Conformité */}
+              <div className="rounded-2xl border border-surface-border bg-white p-6">
+                <p className="flex items-center gap-2 text-sm font-semibold text-navy-600 mb-3">
+                  <CheckCircle2 size={15} className="text-navy-600" />
+                  Conformité au droit marocain
+                </p>
+                <p className="text-sm text-navy-500 leading-relaxed whitespace-pre-line">
+                  {analyse.conformite}
+                </p>
+              </div>
+
+              {/* Recommandations */}
+              {analyse.recommandations.length > 0 && (
+                <div className="rounded-2xl border border-surface-border bg-white p-6">
+                  <p className="flex items-center gap-2 text-sm font-semibold text-navy-600 mb-3">
+                    <ListChecks size={15} className="text-navy-600" />
+                    Recommandations
+                  </p>
+                  <ul className="space-y-2">
+                    {analyse.recommandations.map((rec, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm text-navy-500">
+                        <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-navy-300 shrink-0" />
+                        {rec}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
@@ -278,7 +298,7 @@ export default function AnalysePdfPage() {
         </div>
       </main>
 
-      <Footer />
+      
     </div>
   );
 }

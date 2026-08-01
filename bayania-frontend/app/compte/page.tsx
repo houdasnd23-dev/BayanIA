@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Navbar from "@/components/layout/Navbar";
-import Footer from "@/components/layout/Footer";
+
 import {
   User,
   Shield,
@@ -77,7 +76,7 @@ export default function ComptePage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-surface-muted">
-      <Navbar />
+      
 
       <main className="flex-1">
         <div className="max-w-6xl mx-auto px-6 lg:px-10 pt-10 pb-6 flex items-center justify-between flex-wrap gap-4">
@@ -222,7 +221,7 @@ export default function ComptePage() {
         </div>
       </main>
 
-      <Footer />
+
     </div>
   );
 }

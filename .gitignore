@@ -1,23 +1,38 @@
-# Frontend (bayania/)
-bayania/node_modules/
-bayania/.next/
-bayania/.env.local
-bayania/.env
-
-# Backend (bayania-backend/)
-bayania-backend/__pycache__/
-bayania-backend/**/__pycache__/
-bayania-backend/*.pyc
-bayania-backend/.env
+# Python (racine + backend)
+.venv/
+**/__pycache__/
+**/*.pyc
 bayania-backend/venv/
 bayania-backend/env/
 
-# Uploads / données
-bayania-backend/uploads/
-*.pdf
+# Backend env
+bayania-backend/**/.env
+!bayania-backend/**/.env.example
 
-# Docker / logs
+# Frontend web
+bayania-frontend/node_modules/
+bayania-frontend/.next/
+bayania-frontend/.env.local
+bayania-frontend/.env
+!bayania-frontend/**/.env.example
+
+# Mobile
+bayania-mobile/.env
+bayania-mobile/node_modules/
+bayania-mobile/.expo/
+
+# Backend — dump DB (sensible + lourd)
+bayania-backend/docker/*.dump
+
+# Backend — corpus PDFs (regénérable via scraper)
+bayania-backend/data/pdfs_lois/
+bayania-backend/scripts/data/
+
+# Uploads / données générées
+bayania-backend/uploads/
+bayania-backend/scripts/data/
+
+# Divers
 *.log
 .DS_Store
-
-desktop.ini
+.vscode/

@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
+# Installe le navigateur Chromium + ses dépendances système pour Playwright
+RUN playwright install --with-deps chromium
 # Pre-download the SentenceTransformer model to save runtime startup time
 #RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 # Copy the rest of the application
@@ -23,9 +25,20 @@ COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 COPY docker/entrypoint.sh ./entrypoint.sh
+COPY scripts/ ./scripts/
 # Make entrypoint script executable
 RUN chmod +x ./entrypoint.sh
 # Expose port 8000
 EXPOSE 8000
 # Set entrypoint
 ENTRYPOINT ["./entrypoint.sh"]
+
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
+    tesseract-ocr \
+    tesseract-ocr-ara \
+    && rm -rf /var/lib/apt/lists/*
+RUN python -c "from docling.document_converter import DocumentConverter; DocumentConverter()"
+# ... après pip install -r requirements.txt (ou équivalent)
+

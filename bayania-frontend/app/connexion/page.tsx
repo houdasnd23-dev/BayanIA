@@ -6,7 +6,7 @@ import Link from "next/link";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import { Scale, Mail, Lock, Eye, EyeOff, ShieldCheck, CheckCircle2, Info, ArrowRight } from "lucide-react";
-import { authApi } from "@/src/lib/api";
+import { authApi, usersApi } from "@/src/lib/api";
 
 export default function ConnexionPage() {
   const router = useRouter();
@@ -22,9 +22,17 @@ export default function ConnexionPage() {
     setLoading(true);
 
     try {
-      const data = await authApi.login(email, motDePasse);
-      localStorage.setItem("access_token", data.access_token);
-      router.push("/dashboard"); // adapte vers ta vraie page d'accueil connectée
+      // Le token est déjà stocké automatiquement par authApi.login()
+      await authApi.login(email, motDePasse);
+
+      // On récupère le profil pour connaître le rôle et rediriger en conséquence
+      const profile = await usersApi.getMe();
+
+      if (profile.profil?.type_profil?.toLowerCase() === "administrateur") {
+        router.push("/admin");
+      } else {
+        router.push("/dashboard");
+      }
     } catch (err: any) {
       setError(err.message || "Email ou mot de passe incorrect");
     } finally {

@@ -77,10 +77,12 @@ class QdrantService:
         score_threshold = min_score if min_score is not None else settings.RAG_MIN_SCORE
         
         search_result = client.query_points(
-          collection_name=cls.COLLECTION_NAME,
-          query=query_vector,
-          limit=limit,
-          score_threshold=score_threshold
+             collection_name=cls.COLLECTION_NAME,
+             query=query_vector,
+             limit=limit,
+             score_threshold=score_threshold,
+             query_filter=models.Filter(
+             must=[models.FieldCondition(key="statut_validite", match=models.MatchValue(value=True))])
     ).points
         
         results = []
@@ -93,5 +95,19 @@ class QdrantService:
                 "type_source": hit.payload.get("type_source"),
                 "score": hit.score
             })
-            
+                    
         return results
+    @classmethod
+    async def delete_points(cls, source_ids: List[int]) -> bool:
+        """
+         Supprime les points Qdrant correspondant aux ids donnés.
+         """
+        client = cls.get_client()
+        try:
+            client.delete(
+               collection_name=cls.COLLECTION_NAME,
+               points_selector=source_ids,
+             )
+            return True
+        except Exception:
+          return False

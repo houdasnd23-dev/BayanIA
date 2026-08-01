@@ -33,13 +33,13 @@ class Settings(BaseSettings):
     # ==========================
     LLM_PROVIDER: str = "gemini"
     GEMINI_API_KEY: str = ""
-    LLM_MODEL: str = "gemini-3.5-flash"
+    LLM_MODEL: str = "gemini-3.5-flash-lite"
 
     # ==========================
     # RAG
     # ==========================
-    RAG_TOP_K: int = 3
-    RAG_MIN_SCORE: float = 0.3
+    RAG_TOP_K: int = 4
+    RAG_MIN_SCORE: float = 0.5
 
     # ==========================
     # Storage
