@@ -1,6 +1,6 @@
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # ==========================
@@ -14,6 +14,16 @@ class Settings(BaseSettings):
     # Database
     # ==========================
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/bayania"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/bayania"
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def fix_async_driver(cls, v: str) -> str:
+        if v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        return v
 
     # ==========================
     # Security
