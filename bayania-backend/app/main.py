@@ -52,14 +52,14 @@ app = FastAPI(
 # CORS middleware configuration
 # Includes: Next.js desktop frontend, Android emulator, Expo Go, physical device on LAN
 ALLOWED_ORIGINS = [
-    "http://localhost:3000",       # Frontend Next.js (desktop)
-    "http://localhost:8081",       # Expo dev server
-    "http://localhost:19000",      # Expo Go
-    "http://localhost:19006",      # Expo web
-    "http://10.0.2.2:3000",        # Android emulator → host machine Next.js
-    "http://10.0.2.2:8081",        # Android emulator → Expo dev server
-    "http://192.168.1.15:3000",    # Physical device on local LAN
-    "http://192.168.1.15:8081",    # Physical device on local LAN
+    "http://localhost:3000",
+    "http://localhost:8081",
+    "http://localhost:19000",
+    "http://localhost:19006",
+    "http://10.0.2.2:3000",
+    "http://10.0.2.2:8081",
+    "http://192.168.1.15:3000",
+    "http://192.168.1.15:8081",
     "https://bayan-ia-eight.vercel.app",
 ]
 
