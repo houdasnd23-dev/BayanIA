@@ -40,10 +40,10 @@ Explication
 
 Références juridiques
 """
-    MODEL: str = "gemini-2.5-flash"
+    MODEL: str = "gemini-3.6-flash"
     FALLBACK_MODELS: List[str] = [
-      "gemini-2.5-flash",
-      "gemini-2.0-flash",
+      "gemini-3.5-flash",
+      "gemini-3.0-flash",
     ]
    
 
