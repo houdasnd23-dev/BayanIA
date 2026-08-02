@@ -61,6 +61,7 @@ ALLOWED_ORIGINS = [
     "http://192.168.1.15:3000",
     "http://192.168.1.15:8081",
     "https://bayan-ia-eight.vercel.app",
+    "https://bayan-ia-ho20.vercel.app",
 ]
 
 app.add_middleware(
