@@ -40,13 +40,12 @@ Explication
 
 Références juridiques
 """
-
-    # !!! À REMPLIR avec la sortie EXACTE de list_models.py pour TA clé !!!
-    # Ne pas deviner un nom de modèle -- ça a déjà planté 3 fois aujourd'hui.
-    MODEL: str = "REMPLACE_MOI_AVEC_UN_MODELE_DE_list_models.py"
+    MODEL: str = "gemini-2.5-flash"
     FALLBACK_MODELS: List[str] = [
-        "REMPLACE_MOI_AVEC_UN_MODELE_DE_list_models.py",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
     ]
+   
 
     @staticmethod
     def _build_context(context_chunks: List[Dict[str, Any]]) -> str:
