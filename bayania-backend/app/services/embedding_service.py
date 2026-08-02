@@ -14,6 +14,7 @@ class EmbeddingService:
             lambda: client.models.embed_content(
                 model="gemini-embedding-001",
                 contents=text,
+                config=types.EmbedContentConfig(output_dimensionality=768),
             )
         )
         return result.embeddings[0].values
