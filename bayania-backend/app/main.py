@@ -60,7 +60,7 @@ ALLOWED_ORIGINS = [
     "http://10.0.2.2:8081",        # Android emulator → Expo dev server
     "http://192.168.1.15:3000",    # Physical device on local LAN
     "http://192.168.1.15:8081",    # Physical device on local LAN
-    "https://bayan-ia-eight.vercel.app"
+    "https://bayan-ia-eight.vercel.app",
 ]
 
 app.add_middleware(
