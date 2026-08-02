@@ -25,7 +25,7 @@ def _get_client() -> genai.Client:
 
 class EmbeddingService:
     @classmethod
-    async def get_embeddings(cls, text: str):
+    async def get_embedding(cls, text: str):
         loop = asyncio.get_event_loop()
         client = _get_client()
         result = await loop.run_in_executor(
