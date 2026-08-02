@@ -1,15 +1,33 @@
 import asyncio
+from typing import Optional
+
 from google import genai
 from google.genai import types
+
 from app.core.config import settings
 
-client = genai.Client(api_key=settings.GEMINI_API_KEY)
+# IMPORTANT : ne PAS créer le client ici au niveau module -> si GEMINI_API_KEY
+# est vide/absente, ça ferait planter TOUT le serveur au démarrage (import time),
+# pas seulement cette fonctionnalité. On le crée à la demande à la place.
+_client: Optional[genai.Client] = None
+
+
+def _get_client() -> genai.Client:
+    global _client
+    if _client is None:
+        if not settings.GEMINI_API_KEY:
+            raise RuntimeError(
+                "GEMINI_API_KEY manquante -- impossible de générer les embeddings."
+            )
+        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    return _client
 
 
 class EmbeddingService:
     @classmethod
-    async def get_embedding(cls, text: str):
+    async def get_embeddings(cls, text: str):
         loop = asyncio.get_event_loop()
+        client = _get_client()
         result = await loop.run_in_executor(
             None,
             lambda: client.models.embed_content(

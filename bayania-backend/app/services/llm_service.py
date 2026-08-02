@@ -2,8 +2,8 @@ import json
 import logging
 from typing import List, Dict, Any, Optional
 
-from google import genai
-from google.genai.errors import ServerError, ClientError
+import anthropic
+from anthropic import APIStatusError, APIConnectionError
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -42,15 +42,16 @@ Explication
 Références juridiques
 """
 
-    # Modèle principal (settings.LLM_MODEL) + modèles de secours essayés
-    # dans l'ordre si le précédent échoue (503, surcharge, timeout...).
+    # Modèle principal + modèles de secours essayés dans l'ordre si le
+    # précédent échoue (surcharge, timeout...).
+    MODEL: str = "claude-sonnet-4-5"
     FALLBACK_MODELS: List[str] = [
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
     ]
 
     # ------------------------------------------------------------------
-    # Construction du contexte / prompt
+    # Construction du contexte / prompt (identique à avant, aucun changement)
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -78,9 +79,7 @@ Références juridiques
     ) -> str:
         context = cls._build_context(context_chunks)
 
-        return f"""{cls.SYSTEM_RULES}
-
-==========================
+        return f"""==========================
 CONTEXTE JURIDIQUE
 ==========================
 
@@ -94,58 +93,62 @@ QUESTION
 """
 
     # ------------------------------------------------------------------
-    # Appel Gemini avec retry (backoff exponentiel) sur erreurs transitoires
+    # Appel Claude avec retry (backoff exponentiel) sur erreurs transitoires
     # ------------------------------------------------------------------
 
     @staticmethod
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type(ServerError),
+        retry=retry_if_exception_type(APIConnectionError),
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
     )
-    async def _call_gemini(client: genai.Client, model: str, prompt: str, **kwargs):
+    async def _call_claude(client: anthropic.AsyncAnthropic, model: str, prompt: str, **kwargs):
         """
-        Un seul appel Gemini, retenté jusqu'à 3 fois (2s, 4s, 8s) uniquement
-        sur ServerError (503, surcharge, etc). Les erreurs client (401, 400...)
-        remontent immédiatement sans retry, inutile de perdre du temps dessus.
+        Un seul appel Claude, retenté jusqu'à 3 fois (2s, 4s, 8s) uniquement
+        sur les erreurs de connexion transitoires. Les erreurs API (401, 400...)
+        remontent immédiatement sans retry.
         """
-        return await client.aio.models.generate_content(
+        return await client.messages.create(
             model=model,
-            contents=prompt,
+            max_tokens=2000,
+            system=LLMService.SYSTEM_RULES,
+            messages=[{"role": "user", "content": prompt}],
             **kwargs,
         )
 
     @classmethod
     async def _generate_with_fallback(
         cls,
-        client: genai.Client,
+        client: anthropic.AsyncAnthropic,
         prompt: str,
         **kwargs,
     ):
         """
         Essaie le modèle principal puis, en cas d'échec (après les retries
         internes), bascule successivement sur les modèles de secours.
-        Lève la dernière exception si tous les modèles échouent.
         """
-        models_to_try = [settings.LLM_MODEL] + [
-            m for m in cls.FALLBACK_MODELS if m != settings.LLM_MODEL
-        ]
+        models_to_try = [cls.MODEL] + [m for m in cls.FALLBACK_MODELS if m != cls.MODEL]
 
         last_error: Optional[Exception] = None
 
         for model in models_to_try:
             try:
-                logger.info("Tentative Gemini avec le modèle: %s", model)
-                response = await cls._call_gemini(client, model, prompt, **kwargs)
+                logger.info("Tentative Claude avec le modèle: %s", model)
+                response = await cls._call_claude(client, model, prompt, **kwargs)
                 logger.info("Succès avec le modèle: %s", model)
                 return response
-            except ClientError:
-                # Erreur côté requête (clé invalide, quota définitivement épuisé,
-                # payload invalide...) : ça ne sert à rien d'essayer un autre modèle.
-                logger.exception("Erreur client Gemini (non transitoire) — abandon")
-                raise
+            except APIStatusError as e:
+                if e.status_code in (401, 400):
+                    logger.exception("Erreur client Claude (non transitoire) — abandon")
+                    raise
+                logger.warning(
+                    "Échec avec %s (status %s), passage au modèle suivant",
+                    model, e.status_code,
+                )
+                last_error = e
+                continue
             except Exception as e:
                 logger.warning(
                     "Échec définitif avec %s après retries, passage au modèle suivant",
@@ -154,7 +157,6 @@ QUESTION
                 last_error = e
                 continue
 
-        # Tous les modèles ont échoué
         raise last_error
 
     # ------------------------------------------------------------------
@@ -167,30 +169,29 @@ QUESTION
         anonymized_question: str,
         context_chunks: List[Dict[str, Any]],
     ) -> str:
-        if not settings.GEMINI_API_KEY:
-            logger.error("GEMINI_API_KEY manquante — bascule en mode mock.")
+        if not settings.ANTHROPIC_API_KEY:
+            logger.error("ANTHROPIC_API_KEY manquante — bascule en mode mock.")
             return cls._generate_mock_response(anonymized_question, context_chunks)
 
         prompt = cls._build_prompt(anonymized_question, context_chunks)
 
         try:
-            logger.info("========== GEMINI ==========")
-            logger.info("Provider: %s", settings.LLM_PROVIDER)
-            logger.info("Modèle principal: %s", settings.LLM_MODEL)
+            logger.info("========== CLAUDE ==========")
+            logger.info("Modèle principal: %s", cls.MODEL)
             logger.info("Modèles de secours: %s", cls.FALLBACK_MODELS)
-            logger.info("API Key présente: %s", bool(settings.GEMINI_API_KEY))
+            logger.info("API Key présente: %s", bool(settings.ANTHROPIC_API_KEY))
 
-            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
             response = await cls._generate_with_fallback(client, prompt)
 
-            if response.text:
-                return response.text.strip()
+            if response.content and response.content[0].text:
+                return response.content[0].text.strip()
 
-            logger.warning("Gemini a répondu sans texte (response.text vide).")
+            logger.warning("Claude a répondu sans texte.")
             return "Le modèle n'a retourné aucune réponse."
 
         except Exception:
-            logger.exception("Tous les modèles Gemini ont échoué — mode mock")
+            logger.exception("Tous les modèles Claude ont échoué — mode mock")
             return cls._generate_mock_response(anonymized_question, context_chunks)
 
     @classmethod
@@ -224,7 +225,7 @@ Extrait :
 
 {extrait}...
 
-Cette réponse est simulée car Gemini n'est pas disponible.
+Cette réponse est simulée car Claude n'est pas disponible.
 """
 
     # ------------------------------------------------------------------
@@ -238,12 +239,8 @@ Cette réponse est simulée car Gemini n'est pas disponible.
         instructions_utilisateur: str = "",
         context_chunks: Optional[List[Dict[str, Any]]] = None,
     ) -> AnalyseDocumentResponse:
-        """
-        Analyse un contrat/jugement : résumé structuré + clauses à risque + conformité.
-        Retourne un objet structuré (JSON), pas du texte libre.
-        """
-        if not settings.GEMINI_API_KEY:
-            logger.error("GEMINI_API_KEY manquante — bascule en mode mock.")
+        if not settings.ANTHROPIC_API_KEY:
+            logger.error("ANTHROPIC_API_KEY manquante — bascule en mode mock.")
             return cls._generate_mock_analysis(document_text)
 
         context = cls._build_context(context_chunks or [])
@@ -252,6 +249,11 @@ Cette réponse est simulée car Gemini n'est pas disponible.
             "identifie les clauses à risque et vérifie sa conformité au droit marocain."
         )
 
+        # Claude n'a pas d'équivalent direct au response_schema de Gemini ->
+        # on demande explicitement un JSON conforme au schéma dans le prompt,
+        # et on le parse nous-mêmes (comme le fait déjà le code existant).
+        schema_json = json.dumps(AnalyseDocumentResponse.model_json_schema(), ensure_ascii=False)
+
         prompt = f"""Tu es BayanIA, un assistant juridique spécialisé dans le droit marocain.
 
 Analyse le document ci-dessous en respectant STRICTEMENT ces règles :
@@ -259,6 +261,10 @@ Analyse le document ci-dessous en respectant STRICTEMENT ces règles :
 2. N'invente jamais une clause ou un article qui n'existe pas dans le document.
 3. Si aucune clause à risque n'est identifiée, retourne une liste vide.
 4. Réponds en français.
+5. Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après,
+   conforme exactement à ce schéma JSON :
+
+{schema_json}
 
 ==========================
 DOCUMENT À ANALYSER
@@ -280,32 +286,29 @@ INSTRUCTIONS SPÉCIFIQUES
 """
 
         try:
-            client = genai.Client(api_key=settings.GEMINI_API_KEY)
-            response = await cls._generate_with_fallback(
-                client,
-                prompt,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_schema": AnalyseDocumentResponse,
-                },
-            )
-            if response.text:
-                data = json.loads(response.text)
+            client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+            response = await cls._generate_with_fallback(client, prompt)
+
+            if response.content and response.content[0].text:
+                raw_text = response.content[0].text.strip()
+                # au cas où Claude entoure le JSON de ```json ... ``` malgré la consigne
+                raw_text = raw_text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                data = json.loads(raw_text)
                 return AnalyseDocumentResponse(**data)
 
-            logger.warning("Gemini a répondu sans texte pour l'analyse de document.")
+            logger.warning("Claude a répondu sans texte pour l'analyse de document.")
             return cls._generate_mock_analysis(document_text)
 
         except Exception:
-            logger.exception("Erreur Gemini lors de l'analyse de document")
+            logger.exception("Erreur Claude lors de l'analyse de document")
             return cls._generate_mock_analysis(document_text)
 
     @classmethod
     def _generate_mock_analysis(cls, document_text: str) -> AnalyseDocumentResponse:
         extrait = document_text[:300]
         return AnalyseDocumentResponse(
-            resume=f"[MODE TEST] Analyse simulée car Gemini n'est pas disponible. Extrait : {extrait}...",
+            resume=f"[MODE TEST] Analyse simulée car Claude n'est pas disponible. Extrait : {extrait}...",
             clauses_risque=[],
-            conformite="Non évalué (mode test — Gemini indisponible).",
-            recommandations=["Configurez GEMINI_API_KEY pour une analyse réelle."],
+            conformite="Non évalué (mode test — Claude indisponible).",
+            recommandations=["Configurez ANTHROPIC_API_KEY pour une analyse réelle."],
         )
