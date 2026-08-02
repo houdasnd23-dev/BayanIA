@@ -12,7 +12,7 @@ from app.core.rate_limit import limiter
 from app.models.profil import Profil
 from app.routers import auth, questions, sources, admin, documents
 from app.routers import users
-from app.services.embedding_service import EmbeddingService
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,8 +38,7 @@ async def seed_profiles():
 async def lifespan(app: FastAPI):
     # Run database seeds
     await seed_profiles()
-    # Précharge le modèle d'embedding une seule fois au démarrage
-    EmbeddingService.get_model()
+
     yield
 
 
@@ -61,7 +60,7 @@ ALLOWED_ORIGINS = [
     "http://10.0.2.2:8081",        # Android emulator → Expo dev server
     "http://192.168.1.15:3000",    # Physical device on local LAN
     "http://192.168.1.15:8081",    # Physical device on local LAN
-    "https://<ton-projet>.vercel.app",
+    "https://bayan-ia-eight.vercel.app"
 ]
 
 app.add_middleware(
