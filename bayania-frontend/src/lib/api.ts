@@ -47,9 +47,6 @@ async function request(endpoint: string, options: RequestInit = {}) {
 
   if (res.status === 401) {
     clearToken();
-    if (typeof window !== "undefined") {
-      window.location.href = "/connexion";
-    }
     throw new Error("Session expirée, veuillez vous reconnecter.");
   }
 
@@ -59,7 +56,7 @@ async function request(endpoint: string, options: RequestInit = {}) {
   }
 
   if (res.status === 204) {
-    return null;  // pas de corps à parser
+    return null; // pas de corps à parser
   }
 
   return res.json();
@@ -102,11 +99,12 @@ export const authApi = {
     });
     if (result?.access_token) setToken(result.access_token);
     return result;
-},
+  },
   logout: () => {
     clearToken();
   },
 };
+
 // --- Types alignés sur les schémas Pydantic réels ---
 
 export interface DonneeSensible {
@@ -156,10 +154,8 @@ export interface ReponseIAResponse {
   sources: SourceJuridiqueResponse[];
 }
 
-
 // --- API Questions ---
 export const questionsApi = {
-  // Étape 1 : crée la question, déclenche le RAG côté backend
   create: (
     texte_question_brute: string,
     mode_reponse: "simple" | "pro" = "simple"
@@ -169,20 +165,17 @@ export const questionsApi = {
       body: JSON.stringify({ texte_question_brute, mode_reponse }),
     }),
 
-  // Étape 2 : récupère la réponse générée + sources
   getReponse: (id_question: number): Promise<ReponseIAResponse> =>
     request(`/questions/${id_question}/reponse`, {
       method: "GET",
     }),
 
-  // Upload d'une pièce jointe PDF sur une question existante
   uploadPieceJointe: (id_question: number, file: File): Promise<PieceJointe> => {
     const formData = new FormData();
     formData.append("file", file);
     return requestFormData(`/questions/${id_question}/pieces-jointes`, formData);
   },
 
-  // Pratique : enchaîne create + getReponse d'un coup
   askAndGetAnswer: async (
     texte_question_brute: string,
     mode_reponse: "simple" | "pro" = "simple"
@@ -191,7 +184,7 @@ export const questionsApi = {
     const reponse = await questionsApi.getReponse(question.id_question);
     return { question, reponse };
   },
-   list: (): Promise<QuestionResponse[]> =>
+  list: (): Promise<QuestionResponse[]> =>
     request("/questions", { method: "GET" }),
 };
 
@@ -203,8 +196,6 @@ async function requestFormData(endpoint: string, formData: FormData) {
     method: "POST",
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      // ⚠️ pas de "Content-Type" ici — le navigateur le fixe automatiquement 
-      // avec le bon "boundary" pour multipart/form-data
     },
     body: formData,
   });
@@ -216,6 +207,7 @@ async function requestFormData(endpoint: string, formData: FormData) {
 
   return res.json();
 }
+
 // --- Type pour la mise à jour du profil ---
 interface UserUpdatePayload {
   nom_user?: string;
@@ -245,6 +237,7 @@ export const usersApi = {
       body: JSON.stringify(data),
     }),
 };
+
 export interface ImportationDocumentResponse {
   id_importation: number;
   date_importation: string;
@@ -284,6 +277,7 @@ export const adminApi = {
       method: "DELETE",
     }),
 };
+
 export interface ImportationDocumentDetail {
   id_importation: number;
   date_importation: string;
@@ -292,6 +286,7 @@ export interface ImportationDocumentDetail {
   type_source: string;
   nb_chunks: number;
 }
+
 export interface SourceSearchResult {
   id_source: number | null;
   titre_document: string | null;
