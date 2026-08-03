@@ -16,11 +16,12 @@ from app.schemas.reponse import ReponseIAResponse
 from app.services.anonymisation_service import AnonymisationService
 from app.services.rag_service import RAGService
 from app.utils.file_storage import FileStorage
+from app.core.dependencies import get_current_user_optional
 router = APIRouter(prefix="/questions", tags=["Questions"])
 @router.post("", response_model=QuestionResponse, status_code=status.HTTP_201_CREATED)
 async def create_question(
     question_in: QuestionCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
     """

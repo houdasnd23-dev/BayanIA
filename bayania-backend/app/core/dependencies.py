@@ -5,13 +5,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from jose import jwt, JWTError
+from typing import Optional
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.exceptions import AuthenticationException, AuthorizationException
 from app.core.security import decode_access_token
 from app.models.user import User
 from app.models.profil import Profil
+
 oauth2_scheme = HTTPBearer()
+oauth2_scheme_optional = HTTPBearer(auto_error=False)
+
+GUEST_EMAIL = "guest@bayania.local"
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db)
@@ -20,35 +27,49 @@ async def get_current_user(
     email = decode_access_token(token)
     if email is None:
         raise AuthenticationException("Could not validate credentials")
-    
-    # Retrieve user with profile loaded
+
     stmt = select(User).where(User.email == email).options(selectinload(User.profil))
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if user is None:
         raise AuthenticationException("User not found")
-    
+
     return user
-    if email is None:
-        raise AuthenticationException("Could not validate credentials")
-    
-    # Retrieve user with profile loaded
-    stmt = select(User).where(User.email == email).options(selectinload(User.profil))
+
+
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(oauth2_scheme_optional),
+    db: AsyncSession = Depends(get_db)
+) -> User:
+    if credentials is not None:
+        email = decode_access_token(credentials.credentials)
+        if email:
+            stmt = select(User).where(User.email == email).options(selectinload(User.profil))
+            result = await db.execute(stmt)
+            user = result.scalar_one_or_none()
+            if user:
+                return user
+
+    # Pas de token valide -> utilisateur invité par défaut
+    stmt = select(User).where(User.email == GUEST_EMAIL).options(selectinload(User.profil))
     result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
-    
-    if user is None:
-        raise AuthenticationException("User not found")
-    
-    return user
+    guest = result.scalar_one_or_none()
+    if guest is None:
+        raise AuthenticationException("Guest account not configured")
+    return guest
+
+
 class RoleChecker:
     def __init__(self, allowed_roles: list[str]):
         self.allowed_roles = allowed_roles
+
     def __call__(self, current_user: User = Depends(get_current_user)) -> User:
         user_role = current_user.profil.type_profil
         if user_role not in self.allowed_roles:
-             raise AuthorizationException(f"Role '{user_role}' is not authorized to access this resource")
+            raise AuthorizationException(f"Role '{user_role}' is not authorized to access this resource")
         return current_user
+
+
 def require_role(roles: list[str]):
     return RoleChecker(roles)
