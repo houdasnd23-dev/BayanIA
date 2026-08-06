@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 from typing import List
 from app.core.database import get_db
@@ -13,6 +14,7 @@ from app.services.ingestion_service import IngestionService
 from fastapi import APIRouter, Depends, status, File, UploadFile, Form
 from pypdf import PdfReader
 from app.models.importation_document import ImportationDocument
+from app.models.source_juridique import SourceJuridique  # <-- VÉRIFIE ce chemin (nom réel de ton modèle pour la table sources_juridiques)
 from app.schemas.source import ImportationDocumentDetailResponse
 from app.core.exceptions import InvalidRequestException
 import tempfile
@@ -102,30 +104,54 @@ async def list_documents(
 ):
     """
     Returns all imported documents with their indexation status,
-    most recent first.
+    most recent first. Ne charge JAMAIS contenu_texte (évite l'OOM).
     """
-    stmt = (
+    # 1. Documents de base (légers)
+    stmt_docs = (
         select(ImportationDocument)
-        .options(selectinload(ImportationDocument.sources))
         .order_by(ImportationDocument.date_importation.desc())
     )
-    result = await db.execute(stmt)
+    result = await db.execute(stmt_docs)
     importations = result.scalars().all()
+
+    # 2. Nombre de chunks par document — COUNT côté DB, aucun texte chargé
+    stmt_counts = (
+        select(SourceJuridique.id_importation, func.count(SourceJuridique.id_source))
+        .group_by(SourceJuridique.id_importation)
+    )
+    counts_result = await db.execute(stmt_counts)
+    nb_chunks_map = dict(counts_result.all())
+
+    # 3. Titre + type du premier chunk de chaque document — 3 colonnes seulement, jamais contenu_texte
+    stmt_first = (
+        select(
+            SourceJuridique.id_importation,
+            SourceJuridique.titre_document,
+            SourceJuridique.type_source,
+        )
+        .distinct(SourceJuridique.id_importation)
+        .order_by(SourceJuridique.id_importation, SourceJuridique.id_source.asc())
+    )
+    first_result = await db.execute(stmt_first)
+    first_map = {
+        row.id_importation: (row.titre_document, row.type_source)
+        for row in first_result.all()
+    }
 
     response = []
     for imp in importations:
-        first_source = imp.sources[0] if imp.sources else None
+        titre, type_src = first_map.get(imp.id_importation, ("Document sans titre", "Inconnu"))
         response.append(
             ImportationDocumentDetailResponse(
                 id_importation=imp.id_importation,
                 date_importation=imp.date_importation,
                 statut_indexation=imp.statut_indexation,
-                titre_document=first_source.titre_document if first_source else "Document sans titre",
-                type_source=first_source.type_source if first_source else "Inconnu",
-                nb_chunks=len(imp.sources),
+                titre_document=titre,
+                type_source=type_src,
+                nb_chunks=nb_chunks_map.get(imp.id_importation, 0),
             )
         )
-    return response   
+    return response
 @router.delete(
     "/documents/{id_importation}",
     status_code=status.HTTP_204_NO_CONTENT,

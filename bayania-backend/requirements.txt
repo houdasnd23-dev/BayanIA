@@ -39,7 +39,8 @@ PyYAML==6.0.2
 pypdf==6.14.2
 google-genai
 docling
-anthropic
+
+
 playwright
 requests
 pdf2image
