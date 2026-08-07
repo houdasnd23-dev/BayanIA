@@ -1,8 +1,7 @@
 // lib/api.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.18:8000";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://bayania-production.up.railway.app";
 const TOKEN_KEY = "bayanIA_access_token";
 
 export async function getToken(): Promise<string | null> {

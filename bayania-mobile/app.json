@@ -1,20 +1,16 @@
 {
   "expo": {
     "name": "bayania-mobile",
-    "slug": "bayania-mobile",
+    "slug": "bayania",
     "version": "1.0.0",
     "orientation": "portrait",
-    
     "scheme": "bayaniamobile",
     "userInterfaceStyle": "automatic",
-    
     "android": {
-      "adaptiveIcon": {
-      
-      },
-      "predictiveBackGestureEnabled": false
+      "adaptiveIcon": {},
+      "predictiveBackGestureEnabled": false,
+      "package": "com.ceylosteam.bayania"
     },
-   
     "plugins": [
       "expo-router",
       [
@@ -24,11 +20,26 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      "expo-image",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "5aa76bca-0d1a-4dc2-82f1-e0bdc8593180"
+      }
+    },
+    "owner": "ceylos-team",
+    "ios": {
+      "bundleIdentifier": "com.ceylosteam.bayania",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     }
   }
 }
