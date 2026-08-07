@@ -18,7 +18,7 @@ export interface AdminUser {
   };
 }
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.18:8000";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://bayania-production.up.railway.app"
 
 export const adminApi = {
   listDocuments: (): Promise<ImportationDocumentDetail[]> =>

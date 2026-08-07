@@ -68,10 +68,21 @@ ALLOWED_ORIGINS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*-ho20\.vercel\.app$",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+# SlowAPI Rate Limiter state and handler
+app.state.limiter = limiter
 
 # SlowAPI Rate Limiter state and handler
 app.state.limiter = limiter
@@ -96,3 +107,4 @@ async def health_check():
         "project": settings.PROJECT_NAME,
         "env": settings.ENV
     }
+    

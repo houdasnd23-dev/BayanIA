@@ -20,6 +20,7 @@ from app.core.exceptions import InvalidRequestException
 import tempfile
 import os
 import asyncio
+from app.services.qdrant_service import QdrantService
 from app.services.pdf_extraction import extract_text_docling
 router = APIRouter(prefix="/admin", tags=["Admin Panel"])
 
