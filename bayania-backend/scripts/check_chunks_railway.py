@@ -1,7 +1,8 @@
 import asyncio
 import asyncpg
+import os
 
-RAILWAY_URL = "postgresql://postgres:BKCSnNUZmqzPlHHNNhWBUKPxkXxuPhpK@switchback.proxy.rlwy.net:55326/railway"
+DATABASE_URL = os.getenv("RAILWAY_URL")
 
 async def main():
     conn = await asyncpg.connect(RAILWAY_URL)
