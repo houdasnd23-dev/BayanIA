@@ -3,12 +3,14 @@ from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+
 from app.models.importation_document import ImportationDocument
 from app.models.source_juridique import SourceJuridique
 from app.models.question import Question
 from app.models.reponse_ia import ReponseIA
 from app.services.ingestion_service import IngestionService
 from app.services.rag_service import RAGService
+
 @pytest.mark.asyncio
 @patch("app.services.embedding_service.EmbeddingService.get_embeddings")
 @patch("app.services.qdrant_service.QdrantService.upsert_chunks")
@@ -39,7 +41,8 @@ async def test_document_ingestion_pipeline(
     stmt_import = select(ImportationDocument).where(ImportationDocument.id_importation == importation.id_importation)
     res_import = await db_session.execute(stmt_import)
     assert res_import.scalar_one_or_none() is not None
-     stmt_sources = select(SourceJuridique).where(SourceJuridique.id_importation == importation.id_importation)
+    
+    stmt_sources = select(SourceJuridique).where(SourceJuridique.id_importation == importation.id_importation)
     res_sources = await db_session.execute(stmt_sources)
     sources = list(res_sources.scalars().all())
     
@@ -52,6 +55,7 @@ async def test_document_ingestion_pipeline(
     # Assert Qdrant upsert was called with the correct data
     assert mock_upsert.called
     assert mock_embeddings.called
+
 @pytest.mark.asyncio
 @patch("app.services.embedding_service.EmbeddingService.get_embedding")
 @patch("app.services.qdrant_service.QdrantService.search_similar")
@@ -79,17 +83,6 @@ async def test_rag_query_flow(
     db_session.add(source)
     await db_session.commit()
     await db_session.refresh(source)
-     source = SourceJuridique(
-        type_source="Constitution",
-        titre_document="Constitution 2011",
-        contenu_texte="Article premier: Le Maroc est une monarchie constitutionnelle.",
-        numero_article="Article premier",
-        statut_validite=True,
-        id_importation=importation.id_importation
-    )
-    db_session.add(source)
-    await db_session.commit()
-    await db_session.refresh(source)
     
     # Set up service mocks
     mock_embed.return_value = [0.1] * 384
@@ -103,7 +96,7 @@ async def test_rag_query_flow(
         "score": 0.95
     }]
     
-    mock_llm.return_value = "Conformément à la Constitution, le Maroc est une monarchie constitutionnelle."
+    mock_llm.return_value = "Conformément à l'Article premier de la Constitution 2011, le Maroc est une monarchie constitutionnelle."
     
     # Execute RAG flow
     question_text = "Quel est le régime politique du Maroc ?"

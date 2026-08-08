@@ -41,16 +41,14 @@ class AuthService:
         if result.scalar_one_or_none():
             raise InvalidRequestException("Email already registered")
 
+        # SÉCURITÉ : "administrateur" est explicitement exclu des rôles
+        # attribuables via l'inscription publique. Un compte admin ne peut
+        # être créé que manuellement (SQL direct ou futur endpoint admin
+        # protégé), jamais par auto-inscription.
         profil_type = user_in.type_profil.lower()
 
-        if profil_type not in [
-            "normal",
-            "professionnel",
-            "administrateur",
-        ]:
-            raise InvalidRequestException(
-                "Invalid profile type."
-            )
+        if profil_type not in ["normal", "professionnel"]:
+            raise InvalidRequestException("Invalid profile type.")
 
         profil = await get_or_create_profil(db, profil_type)
 

@@ -4,7 +4,8 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.user import UserResponse, UserUpdate
-
+from sqlalchemy.exc import IntegrityError
+from fastapi import APIRouter, Depends, HTTPException
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
@@ -33,6 +34,10 @@ async def update_my_profile(
         current_user.email = user_update.email
 
     db.add(current_user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Cet email est déjà utilisé.")
     await db.refresh(current_user)
     return current_user

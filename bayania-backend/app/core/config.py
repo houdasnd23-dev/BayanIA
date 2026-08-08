@@ -24,7 +24,19 @@ class Settings(BaseSettings):
         if v.startswith("postgres://"):
             return v.replace("postgres://", "postgresql+asyncpg://", 1)
         return v
+    @field_validator("JWT_SECRET")
 
+    @classmethod
+    def enforce_strong_jwt_secret(cls, v: str, info) -> str:
+    # En production, on refuse de démarrer si le secret par défaut n'a pas été changé.
+    # Mieux vaut un crash au déploiement qu'une faille silencieuse en prod.
+      env = os.environ.get("ENV", "development")
+      if env == "production" and v == "super-secret-jwt-key-change-me-in-production":
+        raise ValueError(
+            "JWT_SECRET doit être défini via une variable d'environnement en production "
+            "(valeur par défaut détectée — refus de démarrage)."
+        )
+      return v
     # ==========================
     # Security
     # ==========================

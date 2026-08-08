@@ -37,3 +37,18 @@ class EmbeddingService:
             )
         )
         return result.embeddings[0].values
+
+    @classmethod
+    async def get_embeddings(cls, texts: list[str]) -> list[list[float]]:
+        """Batch: génère les embeddings pour une liste de textes."""
+        loop = asyncio.get_event_loop()
+        client = _get_client()
+        result = await loop.run_in_executor(
+            None,
+            lambda: client.models.embed_content(
+                model="gemini-embedding-001",
+                contents=texts,
+                config=types.EmbedContentConfig(output_dimensionality=768),
+            )
+        )
+        return [e.values for e in result.embeddings]

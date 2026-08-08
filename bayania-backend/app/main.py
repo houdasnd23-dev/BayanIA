@@ -46,7 +46,9 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Backend de la plateforme d'assistance juridique intelligente (BayanIA)",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    debug=settings.DEBUG,
+
 )
 
 # CORS middleware configuration

@@ -24,7 +24,7 @@ export const adminApi = {
   listDocuments: (): Promise<ImportationDocumentDetail[]> =>
     request("/admin/documents"),
 
-  listUsers: (): Promise<AdminUser[]> => request("/admin/users"),
+  listUsers: (): Promise<AdminUser[]> => request("/admin/utilisateurs"),
 
   deleteDocument: (id: number): Promise<void> =>
     request(`/admin/documents/${id}`, { method: "DELETE" }),

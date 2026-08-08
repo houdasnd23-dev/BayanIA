@@ -52,9 +52,6 @@ class ConfidenceService:
 
         response_lower = response_text.lower()
 
-        # Cas particulier : le modèle a correctement refusé de répondre faute
-        # de contexte suffisant. C'est un comportement honnête, pas un échec —
-        # on ne veut pas lui coller un score bas comme si c'était une hallucination.
         if any(marker in response_lower for marker in cls.INSUFFICIENT_MARKERS):
             return {
                 "confidence": 1.0,
@@ -82,22 +79,13 @@ class ConfidenceService:
             "abstained": False,
         }
 
-    # ------------------------------------------------------------------ #
-    # Signal 1 : retrieval Est-ce que Qdrant a retrouvé de bons documents ?
-    # ------------------------------------------------------------------ #
     @staticmethod
     def _retrieval_score(retrieved_sources: List[Dict[str, Any]]) -> float:
         scores = [max(0.0, min(1.0, s.get("score", 0.0))) for s in retrieved_sources]
         avg_similarity = sum(scores) / len(scores)
         top1_similarity = max(scores)
-        # Le meilleur résultat compte autant que la moyenne : un match excellent
-        # + plusieurs moyens est plus fiable qu'une moyenne lissée qui masque
-        # un top1 déjà faible.
         return 0.5 * top1_similarity + 0.5 * avg_similarity
 
-    # ------------------------------------------------------------------ #
-    # Signal 2 : citation explicite (regex à limites de mots) IA cite-t-elle réellement les articles ?
-    # ------------------------------------------------------------------ #
     @staticmethod
     def _citation_score(
         response_lower: str,
@@ -108,18 +96,12 @@ class ConfidenceService:
             article = str(source.get("numero_article", "")).strip()
             if not article:
                 continue
-            # \b...\b évite qu'un numéro court ("9") ne matche n'importe où
-            # ("9h", "90 DH", "article 19"...).
             pattern = rf"\barticle\s+{re.escape(article)}\b"
             if re.search(pattern, response_lower):
                 citations_found += 1
 
         return citations_found / len(retrieved_sources)
 
-    # ------------------------------------------------------------------ #
-    # Signal 3 : groundedness sémantique phrase par phrase On vérifie que chaque phrase 
-    # de la réponse ressemble réellement au contenu des documents récupérés.
-    # ------------------------------------------------------------------ #
     @classmethod
     async def _groundedness_score(
         cls,
@@ -144,9 +126,6 @@ class ConfidenceService:
                 await EmbeddingService.get_embedding(sent) for sent in sentences
             ]
         except Exception as e:
-            # Si l'embedding échoue (quota, timeout...), on ne bloque pas le
-            # calcul du score global : on retombe sur un groundedness neutre
-            # plutôt que de faire planter toute la réponse.
             logger.warning("Groundedness non calculé [%s]: %s", type(e).__name__, e)
             return 0.5
 
@@ -165,20 +144,4 @@ class ConfidenceService:
     def _cosine(a: List[float], b: List[float]) -> float:
         a_arr, b_arr = np.array(a), np.array(b)
         denom = np.linalg.norm(a_arr) * np.linalg.norm(b_arr)
-        return float(np.dot(a_arr, b_arr) / denom) if denom else 0.
-@classmethod
-async def calculate_score(
-    cls,
-    response_text: str,
-    retrieved_sources: List[Dict[str, Any]],
-    contexte_suffisant: bool,  # reçu directement du LLM, plus de regex fragile
-) -> Dict[str, Any]:
-
-    if not retrieved_sources or not contexte_suffisant:
-        return {
-            "confidence": 1.0,
-            "retrieval": 0.0,
-            "citation": 0.0,
-            "groundedness": 1.0,
-            "abstained": True,
-        }
+        return float(np.dot(a_arr, b_arr) / denom) if denom else 0.0
