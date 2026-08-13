@@ -1,11 +1,12 @@
 # BayanIA Backend - Plateforme d'Assistance Juridique Intelligente (RAG)
-Ce projet fournit le backend complet de la plateforme d'assistance juridique **BayanIA**, basé sur FastAPI, PostgreSQL (avec SQLAlchemy async), Qdrant pour l'indexation vectorielle, sentence-transformers pour les embeddings (`all-MiniLM-L6-v2`), et Docker pour une conteneurisation complète.
+Ce projet fournit le backend complet de la plateforme d'assistance juridique **BayanIA**, basé sur FastAPI, PostgreSQL (avec SQLAlchemy async), Qdrant pour l'indexation vectorielle, l'API Gemini pour les embeddings (`gemini-embedding-001`) et la génération de réponses, et Docker pour une conteneurisation complète.
 ---
 ## 🛠️ Stack Technique
 - **Framework :** FastAPI (totalement asynchrone)
 - **Base de Données relationnelle :** PostgreSQL + SQLAlchemy async + migrations Alembic
 - **Base Vectorielle :** Qdrant
-- **Embeddings :** sentence-transformers (`all-MiniLM-L6-v2` - 384 dimensions)
+- **Embeddings :** Gemini API (`gemini-embedding-001` - 768 dimensions)
+- **LLM :** Gemini API (`gemini-3.6-flash`, avec repli automatique sur `gemini-3.5-flash` puis `gemini-3.0-flash`)
 - **Authentification :** JWT (passlib + python-jose)
 - **Validation & Schémas :** Pydantic v2 & Pydantic Settings
 - **Conteneurisation :** Docker / docker-compose
@@ -34,6 +35,15 @@ bayania-backend/
 ├── requirements.txt                 # Dépendances Python
 └── README.md                        # Ce fichier
 ```
+---
+## 🚀 Lancement du backend
+
+1. Créer le fichier `.env` à partir de `.env.example` et renseigner au minimum `GEMINI_API_KEY` et `GEMINI_GENERATION_API_KEY`.
+2. Se placer dans `bayania-backend/`.
+3. Lancer les conteneurs :
+   ```bash
+   docker compose -f docker/docker-compose.yml --env-file .env up --build
+   ```
 4. Exécuter automatiquement les migrations Alembic et démarrer le serveur.
 5. Se connecter et pré-créer les profils d'utilisateurs (`normal`, `professionnel`, `administrateur`) s'ils n'existent pas.
 Une fois démarré, la documentation interactive Swagger UI est accessible sur :

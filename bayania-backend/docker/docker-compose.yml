@@ -60,7 +60,7 @@ services:
         condition: service_healthy
     volumes:
       - uploads_data:/workspace/uploads
-      - C:/Users/DELL/.cache/huggingface:/root/.cache/huggingface
+      - huggingface_cache:/root/.cache/huggingface
     env_file:
       - .env
 

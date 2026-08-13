@@ -1,0 +1,123 @@
+diff --git a/README.md b/README.md
+index 96e382c..05127ce 100644
+--- a/README.md
++++ b/README.md
+@@ -303,24 +303,24 @@ Avant de lancer le projet, installer :
+ 
+ ```bash
+ git clone https://github.com/<username>/<repository>.git
+-cd <repository>
++cd <repository>/bayania-backend
+ ```
+ 
+ ### Configuration
+ 
+-Créer un fichier `.env` à partir du fichier d'exemple :
++Créer un fichier `.env` à partir du fichier d'exemple (à la racine de `bayania-backend/`) :
+ 
+ ```bash
+ cp .env.example .env
+ ```
+ 
+-Puis configurer les variables nécessaires :
++Puis configurer les variables nécessaires dans `bayania-backend/.env` :
+ 
+ ```env
+-DATABASE_URL=...
+-JWT_SECRET_KEY=...
++DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/bayania
++JWT_SECRET=...
+ GEMINI_API_KEY=...
+-QDRANT_URL=...
++QDRANT_URL=http://qdrant:6333
+ QDRANT_API_KEY=...
+ ```
+ 
+@@ -328,11 +328,15 @@ QDRANT_API_KEY=...
+ 
+ ### Lancer les services
+ 
++Le `docker-compose.yml` se trouve dans `bayania-backend/docker/`. Depuis `bayania-backend/` :
++
+ ```bash
+-docker compose up --build
++docker compose -f docker/docker-compose.yml --env-file .env up --build
+ ```
+ 
+-Les services principaux sont alors lancés dans des conteneurs séparés.
++Les services principaux (PostgreSQL, Qdrant, API FastAPI) sont alors lancés dans des conteneurs séparés. L'API est ensuite accessible sur `http://localhost:8000`.
++
++Le frontend (`bayania-frontend/`) et l'application mobile (`bayania-mobile/`) se lancent séparément — voir leurs README respectifs.
+ 
+ ---
+ 
+diff --git a/bayania-backend/.env.example b/bayania-backend/.env.example
+index 5bba078..d11a36f 100644
+--- a/bayania-backend/.env.example
++++ b/bayania-backend/.env.example
+@@ -12,11 +12,12 @@ ACCESS_TOKEN_EXPIRE_MINUTES=60
+ # Configuration de la base de données vectorielle Qdrant
+ QDRANT_URL="http://localhost:6333"
+ QDRANT_API_KEY=""
+-# Configuration du LLM
+-LLM_PROVIDER="mock" # Valeurs : mock, openai, openapi_compatible
+-LLM_API_KEY=""
+-LLM_API_URL="https://api.openai.com/v1"
+-LLM_MODEL="gpt-4o"
++# Configuration du LLM (Gemini)
++LLM_PROVIDER="gemini"
++# Clé utilisée pour les embeddings (gemini-embedding-001)
++GEMINI_API_KEY=""
++# Clé utilisée pour la génération de réponses (gemini-3.6-flash, avec fallback 3.5/3.0)
++GEMINI_GENERATION_API_KEY=""
+ # Paramètres RAG
+ RAG_TOP_K=4
+ RAG_MIN_SCORE=0.5
+diff --git a/bayania-backend/README.md b/bayania-backend/README.md
+index 0deb340..e75b1e1 100644
+--- a/bayania-backend/README.md
++++ b/bayania-backend/README.md
+@@ -1,11 +1,12 @@
+ # BayanIA Backend - Plateforme d'Assistance Juridique Intelligente (RAG)
+-Ce projet fournit le backend complet de la plateforme d'assistance juridique **BayanIA**, basé sur FastAPI, PostgreSQL (avec SQLAlchemy async), Qdrant pour l'indexation vectorielle, sentence-transformers pour les embeddings (`all-MiniLM-L6-v2`), et Docker pour une conteneurisation complète.
++Ce projet fournit le backend complet de la plateforme d'assistance juridique **BayanIA**, basé sur FastAPI, PostgreSQL (avec SQLAlchemy async), Qdrant pour l'indexation vectorielle, l'API Gemini pour les embeddings (`gemini-embedding-001`) et la génération de réponses, et Docker pour une conteneurisation complète.
+ ---
+ ## 🛠️ Stack Technique
+ - **Framework :** FastAPI (totalement asynchrone)
+ - **Base de Données relationnelle :** PostgreSQL + SQLAlchemy async + migrations Alembic
+ - **Base Vectorielle :** Qdrant
+-- **Embeddings :** sentence-transformers (`all-MiniLM-L6-v2` - 384 dimensions)
++- **Embeddings :** Gemini API (`gemini-embedding-001` - 768 dimensions)
++- **LLM :** Gemini API (`gemini-3.6-flash`, avec repli automatique sur `gemini-3.5-flash` puis `gemini-3.0-flash`)
+ - **Authentification :** JWT (passlib + python-jose)
+ - **Validation & Schémas :** Pydantic v2 & Pydantic Settings
+ - **Conteneurisation :** Docker / docker-compose
+@@ -34,6 +35,15 @@ bayania-backend/
+ ├── requirements.txt                 # Dépendances Python
+ └── README.md                        # Ce fichier
+ ```
++---
++## 🚀 Lancement du backend
++
++1. Créer le fichier `.env` à partir de `.env.example` et renseigner au minimum `GEMINI_API_KEY` et `GEMINI_GENERATION_API_KEY`.
++2. Se placer dans `bayania-backend/`.
++3. Lancer les conteneurs :
++   ```bash
++   docker compose -f docker/docker-compose.yml --env-file .env up --build
++   ```
+ 4. Exécuter automatiquement les migrations Alembic et démarrer le serveur.
+ 5. Se connecter et pré-créer les profils d'utilisateurs (`normal`, `professionnel`, `administrateur`) s'ils n'existent pas.
+ Une fois démarré, la documentation interactive Swagger UI est accessible sur :
+diff --git a/bayania-backend/docker/docker-compose.yml b/bayania-backend/docker/docker-compose.yml
+index 701ea68..f025644 100644
+--- a/bayania-backend/docker/docker-compose.yml
++++ b/bayania-backend/docker/docker-compose.yml
+@@ -60,7 +60,7 @@ services:
+         condition: service_healthy
+     volumes:
+       - uploads_data:/workspace/uploads
+-      - C:/Users/DELL/.cache/huggingface:/root/.cache/huggingface
++      - huggingface_cache:/root/.cache/huggingface
+     env_file:
+       - .env
+ 
