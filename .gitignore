@@ -35,7 +35,7 @@ bayania-backend/scripts/data/
 # Divers
 *.log
 .DS_Store
-.vscode/docker/sources_only.sql
+.vscode/
 bayania-backend/docker/sources_only.sql
 bayania-backend/scripts/create_qdrant_index.py
 bayania-backend/scripts/fill_1500.py
