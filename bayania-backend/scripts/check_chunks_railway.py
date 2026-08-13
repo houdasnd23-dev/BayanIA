@@ -5,7 +5,7 @@ import os
 DATABASE_URL = os.getenv("RAILWAY_URL")
 
 async def main():
-    conn = await asyncpg.connect(RAILWAY_URL)
+    conn = await asyncpg.connect(DATABASE_URL)
     
     # Check count in importations_documents
     count_importations = await conn.fetchval("SELECT COUNT(*) FROM importations_documents")

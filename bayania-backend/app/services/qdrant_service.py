@@ -6,7 +6,7 @@ from app.core.config import settings
 class QdrantService:
     _client: Optional[QdrantClient] = None
     COLLECTION_NAME = "sources_juridiques"
-    VECTOR_SIZE = 384  # Dimension of all-MiniLM-L6-v2
+    VECTOR_SIZE = 768  # Dimension of gemini-embedding-001 (voir embedding_service.py)
     @classmethod
     def get_client(cls) -> QdrantClient:
         if cls._client is None:
