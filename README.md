@@ -170,7 +170,7 @@ Génération des embeddings
 Indexation Qdrant
 ```
 
-Les embeddings sont générés à l'aide de **Sentence Transformers** et les vecteurs sont stockés dans Qdrant afin de permettre une recherche par similarité sémantique.
+Les embeddings sont générés à l'aide de l'**API Gemini** (`gemini-embedding-001`) et les vecteurs sont stockés dans Qdrant afin de permettre une recherche par similarité sémantique.
 
 ---
 
@@ -183,7 +183,7 @@ Les embeddings sont générés à l'aide de **Sentence Transformers** et les vec
 | Base relationnelle     | PostgreSQL            |
 | Base vectorielle       | Qdrant                |
 | ORM                    | SQLAlchemy            |
-| Embeddings             | Sentence Transformers |
+| Embeddings             | Gemini API             |
 | LLM                    | Gemini API            |
 | Authentification       | JWT                   |
 | Sécurité mots de passe | bcrypt                |
@@ -303,24 +303,24 @@ Avant de lancer le projet, installer :
 
 ```bash
 git clone https://github.com/<username>/<repository>.git
-cd <repository>
+cd <repository>/bayania-backend
 ```
 
 ### Configuration
 
-Créer un fichier `.env` à partir du fichier d'exemple :
+Créer un fichier `.env` à partir du fichier d'exemple (à la racine de `bayania-backend/`) :
 
 ```bash
 cp .env.example .env
 ```
 
-Puis configurer les variables nécessaires :
+Puis configurer les variables nécessaires dans `bayania-backend/.env` :
 
 ```env
-DATABASE_URL=...
-JWT_SECRET_KEY=...
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/bayania
+JWT_SECRET=...
 GEMINI_API_KEY=...
-QDRANT_URL=...
+QDRANT_URL=http://qdrant:6333
 QDRANT_API_KEY=...
 ```
 
@@ -328,11 +328,15 @@ QDRANT_API_KEY=...
 
 ### Lancer les services
 
+Le `docker-compose.yml` se trouve dans `bayania-backend/docker/`. Depuis `bayania-backend/` :
+
 ```bash
-docker compose up --build
+docker compose -f docker/docker-compose.yml --env-file .env up --build
 ```
 
-Les services principaux sont alors lancés dans des conteneurs séparés.
+Les services principaux (PostgreSQL, Qdrant, API FastAPI) sont alors lancés dans des conteneurs séparés. L'API est ensuite accessible sur `http://localhost:8000`.
+
+Le frontend (`bayania-frontend/`) et l'application mobile (`bayania-mobile/`) se lancent séparément — voir leurs README respectifs.
 
 ---
 
