@@ -14,13 +14,17 @@ class SearchService:
     Recherche juridique hybride :
     - recherche sémantique Qdrant
     - recherche lexicale PostgreSQL
-    - fusion des résultats
+    - fusion RRF
     """
 
     DENSE_TOP_K = 20
     LEXICAL_TOP_K = 30
     FINAL_TOP_K = 10
     RRF_K = 60
+
+    # ==========================================================
+    # NORMALISATION
+    # ==========================================================
 
     @staticmethod
     def normalize(text: str) -> str:
@@ -29,12 +33,14 @@ class SearchService:
 
         text = text.lower()
 
-        # Normalisation arabe
+        # Diacritiques arabes
         text = re.sub(
             r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]",
             "",
             text,
         )
+
+        # Normalisation arabe
         text = text.replace("أ", "ا")
         text = text.replace("إ", "ا")
         text = text.replace("آ", "ا")
@@ -45,9 +51,16 @@ class SearchService:
 
         return re.sub(r"\s+", " ", text).strip()
 
+    # ==========================================================
+    # EXTRACTION DES TERMES
+    # ==========================================================
+
     @classmethod
     def extract_terms(cls, query: str) -> List[str]:
         text = cls.normalize(query)
+
+        if not text:
+            return []
 
         tokens = re.findall(
             r"[\u0600-\u06FF]+|[A-Za-zÀ-ÿ]+|\d+(?:[./-]\d+)*",
@@ -55,19 +68,65 @@ class SearchService:
         )
 
         stopwords = {
-            # arabe
-            "ما", "ماذا", "ماهو", "ماهي", "من", "هل",
-            "كيف", "لماذا", "متى", "اين", "في", "عن",
-            "على", "الى", "و", "او", "مع", "هو", "هي",
-            "هذا", "هذه", "ذلك", "تلك", "الذي", "التي",
-            "حسب", "حول", "بشأن", "بخصوص",
+            # Arabe
+            "ما",
+            "ماذا",
+            "ماهو",
+            "ماهي",
+            "من",
+            "هل",
+            "كيف",
+            "لماذا",
+            "متى",
+            "اين",
+            "في",
+            "عن",
+            "على",
+            "الى",
+            "و",
+            "او",
+            "مع",
+            "هو",
+            "هي",
+            "هذا",
+            "هذه",
+            "ذلك",
+            "تلك",
+            "الذي",
+            "التي",
+            "حسب",
+            "حول",
+            "بشأن",
+            "بخصوص",
 
-            # français
-            "quel", "quelle", "quels", "quelles", "qui",
-            "que", "quoi", "comment", "pourquoi", "dans",
-            "sur", "avec", "selon", "pour", "des", "les",
-            "une", "un", "de", "du", "la", "le", "et",
-            "ou", "au", "aux", "par",
+            # Français
+            "quel",
+            "quelle",
+            "quels",
+            "quelles",
+            "qui",
+            "que",
+            "quoi",
+            "comment",
+            "pourquoi",
+            "dans",
+            "sur",
+            "avec",
+            "selon",
+            "pour",
+            "des",
+            "les",
+            "une",
+            "un",
+            "de",
+            "du",
+            "la",
+            "le",
+            "et",
+            "ou",
+            "au",
+            "aux",
+            "par",
         }
 
         tokens = [
@@ -78,7 +137,7 @@ class SearchService:
 
         terms: List[str] = []
 
-        # Expressions de plusieurs mots
+        # Expressions de 4, 3 et 2 mots
         for n in (4, 3, 2):
             for i in range(len(tokens) - n + 1):
                 phrase = " ".join(tokens[i:i + n])
@@ -92,6 +151,10 @@ class SearchService:
                 terms.append(token)
 
         return terms[:20]
+
+    # ==========================================================
+    # RECHERCHE LEXICALE
+    # ==========================================================
 
     @classmethod
     async def lexical_search(
@@ -110,11 +173,13 @@ class SearchService:
         for term in terms:
             pattern = f"%{term}%"
 
-            conditions.extend([
-                SourceJuridique.titre_document.ilike(pattern),
-                SourceJuridique.contenu_texte.ilike(pattern),
-                SourceJuridique.numero_article.ilike(pattern),
-            ])
+            conditions.extend(
+                [
+                    SourceJuridique.titre_document.ilike(pattern),
+                    SourceJuridique.contenu_texte.ilike(pattern),
+                    SourceJuridique.numero_article.ilike(pattern),
+                ]
+            )
 
         stmt = (
             select(SourceJuridique)
@@ -128,134 +193,142 @@ class SearchService:
         result = await db.execute(stmt)
         sources = result.scalars().all()
 
-        results = []
+        results: List[Dict[str, Any]] = []
 
         normalized_terms = [
-            cls.normalize(term) for term in terms
+            cls.normalize(term)
+            for term in terms
         ]
 
-    for source in sources:
- 
-     title = cls.normalize(
-        source.titre_document or ""
-    )
+        # Expressions exactes de plusieurs mots
+        phrase_terms = [
+            term
+            for term in normalized_terms
+            if " " in term
+        ]
 
-     content = cls.normalize(
-        source.contenu_texte or ""
-    )
+        # Mots individuels
+        single_terms = [
+            term
+            for term in normalized_terms
+            if " " not in term
+        ]
 
-     article = cls.normalize(
-        source.numero_article or ""
-    )
+        for source in sources:
 
-     score = 0.0
+            title = cls.normalize(
+                source.titre_document or ""
+            )
 
-     matched_terms = 0
+            content = cls.normalize(
+                source.contenu_texte or ""
+            )
 
-    # ------------------------------------------------------
-    # 1. Expressions exactes de la requête
-    # ------------------------------------------------------
+            article = cls.normalize(
+                source.numero_article or ""
+            )
 
-    # Les termes de longueur >= 2 mots
-     phrase_terms = [
-        cls.normalize(term)
-        for term in terms
-        if " " in term
-     ]
+            score = 0.0
+            matched_single_terms = 0
 
-     for phrase in phrase_terms:
+            # --------------------------------------------------
+            # 1. Expressions exactes
+            # --------------------------------------------------
 
-        if not phrase:
-            continue
+            exact_phrase_found = False
 
-        # Phrase exacte dans le titre
-        if phrase in title:
-            score += 20.0
+            for phrase in phrase_terms:
 
-        # Phrase exacte dans le contenu
-        if phrase in content:
-            score += 12.0
+                if not phrase:
+                    continue
 
-        # Phrase exacte dans l'article
-        if phrase in article:
-            score += 10.0
+                # Très forte priorité au titre
+                if phrase in title:
+                    score += 20.0
+                    exact_phrase_found = True
 
-    # ------------------------------------------------------
-    # 2. Vérifier les mots importants individuellement
-    # ------------------------------------------------------
+                # Forte priorité au contenu
+                if phrase in content:
+                    score += 12.0
+                    exact_phrase_found = True
 
-     single_terms = [
-        cls.normalize(term)
-        for term in terms
-        if " " not in term
-    ]
+                # Référence/article
+                if phrase in article:
+                    score += 10.0
+                    exact_phrase_found = True
 
-     for term in single_terms:
+            # --------------------------------------------------
+            # 2. Mots individuels
+            # --------------------------------------------------
 
-        if not term:
-            continue
+            for term in single_terms:
 
-        found = False
+                if not term:
+                    continue
 
-        if term in title:
-            score += 4.0
-            found = True
+                found = False
 
-        if term in article:
-            score += 3.0
-            found = True
+                if term in title:
+                    score += 4.0
+                    found = True
 
-        if term in content:
-            score += 1.0
-            found = True
+                if term in article:
+                    score += 3.0
+                    found = True
 
-        if found:
-            matched_terms += 1
+                if term in content:
+                    score += 1.0
+                    found = True
 
-    # ------------------------------------------------------
-    # 3. Bonus si plusieurs termes importants sont présents
-    # ------------------------------------------------------
+                if found:
+                    matched_single_terms += 1
 
-     if matched_terms >= 2:
-        score += 8.0
+            # --------------------------------------------------
+            # 3. Bonus si plusieurs termes sont présents
+            # --------------------------------------------------
 
-     if matched_terms >= 3:
-        score += 8.0
+            if matched_single_terms >= 2:
+                score += 8.0
 
-    # ------------------------------------------------------
-    # 4. Bonus si une expression exacte est présente
-    # ------------------------------------------------------
+            if matched_single_terms >= 3:
+                score += 8.0
 
-     exact_phrase_found = any(
-        phrase in title or phrase in content
-        for phrase in phrase_terms
-    )
+            # --------------------------------------------------
+            # 4. Bonus expression exacte
+            # --------------------------------------------------
 
-     if exact_phrase_found:
-        score += 15.0
+            if exact_phrase_found:
+                score += 15.0
 
-    # ------------------------------------------------------
-    # 5. Ignorer les résultats trop faibles
-    # ------------------------------------------------------
+            # --------------------------------------------------
+            # 5. Filtrer les résultats trop faibles
+            # --------------------------------------------------
 
-     if score < 5.0:
-        continue
+            if score < 5.0:
+                continue
 
-     results.append({
-        "id_source": source.id_source,
-        "titre_document": source.titre_document,
-        "numero_article": source.numero_article,
-        "contenu_texte": source.contenu_texte,
-        "type_source": source.type_source,
-        "score": score,
-        "retrieval_type": "lexical",
-    })
-    results.sort(
+            results.append(
+                {
+                    "id_source": source.id_source,
+                    "titre_document": source.titre_document,
+                    "numero_article": source.numero_article,
+                    "contenu_texte": source.contenu_texte,
+                    "type_source": source.type_source,
+                    "score": score,
+                    "retrieval_type": "lexical",
+                }
+            )
+
+        results.sort(
             key=lambda x: x["score"],
             reverse=True,
         )
 
-    return results[:cls.LEXICAL_TOP_K]
+        return results[:cls.LEXICAL_TOP_K]
+
+    # ==========================================================
+    # RECHERCHE DENSE
+    # ==========================================================
 
     @classmethod
     async def dense_search(
@@ -265,11 +338,17 @@ class SearchService:
 
         vector = await EmbeddingService.get_embedding(query)
 
-        return await QdrantService.search_similar(
+        results = await QdrantService.search_similar(
             vector,
             top_k=cls.DENSE_TOP_K,
             min_score=0.35,
         )
+
+        return results
+
+    # ==========================================================
+    # FUSION RRF
+    # ==========================================================
 
     @classmethod
     async def hybrid_search(
@@ -288,8 +367,14 @@ class SearchService:
 
         merged: Dict[int, Dict[str, Any]] = {}
 
-        # Recherche dense
-        for rank, item in enumerate(dense_results, start=1):
+        # ------------------------------------------------------
+        # Résultats dense
+        # ------------------------------------------------------
+
+        for rank, item in enumerate(
+            dense_results,
+            start=1,
+        ):
 
             source_id = item.get("id_source")
 
@@ -297,6 +382,7 @@ class SearchService:
                 continue
 
             if source_id not in merged:
+
                 merged[source_id] = {
                     **item,
                     "rrf_score": 0.0,
@@ -310,8 +396,14 @@ class SearchService:
 
             merged[source_id]["dense_rank"] = rank
 
-        # Recherche lexicale
-        for rank, item in enumerate(lexical_results, start=1):
+        # ------------------------------------------------------
+        # Résultats lexicaux
+        # ------------------------------------------------------
+
+        for rank, item in enumerate(
+            lexical_results,
+            start=1,
+        ):
 
             source_id = item.get("id_source")
 
@@ -319,6 +411,7 @@ class SearchService:
                 continue
 
             if source_id not in merged:
+
                 merged[source_id] = {
                     **item,
                     "rrf_score": 0.0,
@@ -332,8 +425,12 @@ class SearchService:
 
             merged[source_id]["lexical_rank"] = rank
 
-        # Bonus si trouvé par les deux méthodes
+        # ------------------------------------------------------
+        # Bonus lorsque les 2 méthodes trouvent le même document
+        # ------------------------------------------------------
+
         for item in merged.values():
+
             if (
                 item["dense_rank"] is not None
                 and item["lexical_rank"] is not None
@@ -342,9 +439,31 @@ class SearchService:
 
         results = list(merged.values())
 
+        # ------------------------------------------------------
+        # Tri
+        # ------------------------------------------------------
+
         results.sort(
             key=lambda x: x["rrf_score"],
             reverse=True,
         )
+
+        # ------------------------------------------------------
+        # Normalisation du score pour le frontend
+        # 0.0 → 1.0
+        # ------------------------------------------------------
+
+        if results:
+
+            max_score = results[0]["rrf_score"]
+
+            for item in results:
+
+                if max_score > 0:
+                    item["score"] = (
+                        item["rrf_score"] / max_score
+                    )
+                else:
+                    item["score"] = 0.0
 
         return results[:top_k]
