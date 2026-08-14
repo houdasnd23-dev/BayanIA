@@ -11,36 +11,46 @@ from app.services.qdrant_service import QdrantService
 
 class SearchService:
     """
-    Recherche juridique hybride :
-    - recherche sémantique Qdrant
-    - recherche lexicale PostgreSQL
-    - fusion RRF
+    Recherche juridique hybride BayanIA.
+
+    Dense:
+        Qdrant -> similarité sémantique
+
+    Lexical:
+        PostgreSQL -> correspondance exacte des termes
+
+    Les deux résultats sont ensuite fusionnés.
     """
 
     DENSE_TOP_K = 20
     LEXICAL_TOP_K = 30
     FINAL_TOP_K = 10
-    RRF_K = 60
 
     # ==========================================================
-    # NORMALISATION
+    # NORMALISATION POUR LE SCORING UNIQUEMENT
     # ==========================================================
 
     @staticmethod
-    def normalize(text: str) -> str:
+    def normalize_for_score(text: str) -> str:
+        """
+        Normalisation utilisée UNIQUEMENT pour comparer les textes.
+
+        Attention :
+        ne pas utiliser cette fonction pour construire les requêtes SQL,
+        sinon certaines lettres arabes changent (ة -> ه, etc.).
+        """
+
         if not text:
             return ""
 
         text = text.lower()
 
-        # Diacritiques arabes
         text = re.sub(
             r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]",
             "",
             text,
         )
 
-        # Normalisation arabe
         text = text.replace("أ", "ا")
         text = text.replace("إ", "ا")
         text = text.replace("آ", "ا")
@@ -52,12 +62,42 @@ class SearchService:
         return re.sub(r"\s+", " ", text).strip()
 
     # ==========================================================
+    # TEXTE POUR REQUETE SQL
+    # ==========================================================
+
+    @staticmethod
+    def normalize_for_sql(text: str) -> str:
+        """
+        Normalisation légère pour PostgreSQL.
+
+        IMPORTANT :
+        on ne modifie PAS les lettres arabes.
+        """
+
+        if not text:
+            return ""
+
+        text = text.lower()
+
+        return re.sub(r"\s+", " ", text).strip()
+
+    # ==========================================================
     # EXTRACTION DES TERMES
     # ==========================================================
 
     @classmethod
     def extract_terms(cls, query: str) -> List[str]:
-        text = cls.normalize(query)
+        """
+        Extrait :
+        - expressions de 4 mots
+        - expressions de 3 mots
+        - expressions de 2 mots
+        - mots individuels
+
+        Les termes retournés conservent leur forme pour SQL.
+        """
+
+        text = cls.normalize_for_sql(query)
 
         if not text:
             return []
@@ -137,10 +177,13 @@ class SearchService:
 
         terms: List[str] = []
 
-        # Expressions de 4, 3 et 2 mots
+        # Expressions composées
         for n in (4, 3, 2):
             for i in range(len(tokens) - n + 1):
-                phrase = " ".join(tokens[i:i + n])
+
+                phrase = " ".join(
+                    tokens[i:i + n]
+                )
 
                 if len(phrase) >= 6 and phrase not in terms:
                     terms.append(phrase)
@@ -170,7 +213,11 @@ class SearchService:
 
         conditions = []
 
+        # IMPORTANT :
+        # ici on utilise les termes BRUTS,
+        # pas normalize_for_score().
         for term in terms:
+
             pattern = f"%{term}%"
 
             conditions.extend(
@@ -191,77 +238,90 @@ class SearchService:
         )
 
         result = await db.execute(stmt)
-        sources = result.scalars().all()
 
-        results: List[Dict[str, Any]] = []
+        sources = list(
+            result.scalars().all()
+        )
 
-        normalized_terms = [
-            cls.normalize(term)
-            for term in terms
-        ]
+        results = []
 
-        # Expressions exactes de plusieurs mots
+        # Expressions composées
         phrase_terms = [
             term
-            for term in normalized_terms
+            for term in terms
             if " " in term
         ]
 
-        # Mots individuels
+        # Mots seuls
         single_terms = [
             term
-            for term in normalized_terms
+            for term in terms
             if " " not in term
         ]
 
+        normalized_phrases = [
+            cls.normalize_for_score(term)
+            for term in phrase_terms
+        ]
+
+        normalized_single_terms = [
+            cls.normalize_for_score(term)
+            for term in single_terms
+        ]
+
+        # ------------------------------------------------------
+        # Scoring
+        # ------------------------------------------------------
+
         for source in sources:
 
-            title = cls.normalize(
-                source.titre_document or ""
+            title_raw = source.titre_document or ""
+            content_raw = source.contenu_texte or ""
+            article_raw = source.numero_article or ""
+
+            title = cls.normalize_for_score(
+                title_raw
             )
 
-            content = cls.normalize(
-                source.contenu_texte or ""
+            content = cls.normalize_for_score(
+                content_raw
             )
 
-            article = cls.normalize(
-                source.numero_article or ""
+            article = cls.normalize_for_score(
+                article_raw
             )
 
             score = 0.0
+
+            exact_phrase_count = 0
             matched_single_terms = 0
 
             # --------------------------------------------------
-            # 1. Expressions exactes
+            # Expressions exactes
             # --------------------------------------------------
 
-            exact_phrase_found = False
-
-            for phrase in phrase_terms:
+            for phrase in normalized_phrases:
 
                 if not phrase:
                     continue
 
-                # Très forte priorité au titre
                 if phrase in title:
+                    score += 30.0
+                    exact_phrase_count += 1
+
+                elif phrase in content:
                     score += 20.0
-                    exact_phrase_found = True
+                    exact_phrase_count += 1
 
-                # Forte priorité au contenu
-                if phrase in content:
-                    score += 12.0
-                    exact_phrase_found = True
-
-                # Référence/article
-                if phrase in article:
-                    score += 10.0
-                    exact_phrase_found = True
+                elif phrase in article:
+                    score += 15.0
+                    exact_phrase_count += 1
 
             # --------------------------------------------------
-            # 2. Mots individuels
+            # Termes individuels
             # --------------------------------------------------
 
-            for term in single_terms:
+            for term in normalized_single_terms:
 
                 if not term:
                     continue
@@ -284,27 +344,23 @@ class SearchService:
                     matched_single_terms += 1
 
             # --------------------------------------------------
-            # 3. Bonus si plusieurs termes sont présents
+            # Bonus plusieurs termes
             # --------------------------------------------------
 
             if matched_single_terms >= 2:
-                score += 8.0
+                score += 10.0
 
             if matched_single_terms >= 3:
-                score += 8.0
+                score += 10.0
 
             # --------------------------------------------------
-            # 4. Bonus expression exacte
+            # Bonus très fort si phrase exacte
             # --------------------------------------------------
 
-            if exact_phrase_found:
-                score += 15.0
+            if exact_phrase_count > 0:
+                score += 30.0
 
-            # --------------------------------------------------
-            # 5. Filtrer les résultats trop faibles
-            # --------------------------------------------------
-
-            if score < 5.0:
+            if score <= 0:
                 continue
 
             results.append(
@@ -315,12 +371,16 @@ class SearchService:
                     "contenu_texte": source.contenu_texte,
                     "type_source": source.type_source,
                     "score": score,
+                    "exact_phrase": exact_phrase_count > 0,
                     "retrieval_type": "lexical",
                 }
             )
 
         results.sort(
-            key=lambda x: x["score"],
+            key=lambda item: (
+                item["exact_phrase"],
+                item["score"],
+            ),
             reverse=True,
         )
 
@@ -336,7 +396,9 @@ class SearchService:
         query: str,
     ) -> List[Dict[str, Any]]:
 
-        vector = await EmbeddingService.get_embedding(query)
+        vector = await EmbeddingService.get_embedding(
+            query
+        )
 
         results = await QdrantService.search_similar(
             vector,
@@ -347,7 +409,7 @@ class SearchService:
         return results
 
     # ==========================================================
-    # FUSION RRF
+    # RECHERCHE HYBRIDE
     # ==========================================================
 
     @classmethod
@@ -358,7 +420,9 @@ class SearchService:
         top_k: int = FINAL_TOP_K,
     ) -> List[Dict[str, Any]]:
 
-        dense_results = await cls.dense_search(query)
+        dense_results = await cls.dense_search(
+            query
+        )
 
         lexical_results = await cls.lexical_search(
             db,
@@ -366,35 +430,6 @@ class SearchService:
         )
 
         merged: Dict[int, Dict[str, Any]] = {}
-
-        # ------------------------------------------------------
-        # Résultats dense
-        # ------------------------------------------------------
-
-        for rank, item in enumerate(
-            dense_results,
-            start=1,
-        ):
-
-            source_id = item.get("id_source")
-
-            if source_id is None:
-                continue
-
-            if source_id not in merged:
-
-                merged[source_id] = {
-                    **item,
-                    "rrf_score": 0.0,
-                    "dense_rank": None,
-                    "lexical_rank": None,
-                }
-
-            merged[source_id]["rrf_score"] += (
-                1.0 / (cls.RRF_K + rank)
-            )
-
-            merged[source_id]["dense_rank"] = rank
 
         # ------------------------------------------------------
         # Résultats lexicaux
@@ -405,7 +440,33 @@ class SearchService:
             start=1,
         ):
 
-            source_id = item.get("id_source")
+            source_id = item.get(
+                "id_source"
+            )
+
+            if source_id is None:
+                continue
+
+            merged[source_id] = {
+                **item,
+                "lexical_rank": rank,
+                "dense_rank": None,
+                "dense_score": 0.0,
+                "hybrid_score": 0.0,
+            }
+
+        # ------------------------------------------------------
+        # Résultats dense
+        # ------------------------------------------------------
+
+        for rank, item in enumerate(
+            dense_results,
+            start=1,
+        ):
+
+            source_id = item.get(
+                "id_source"
+            )
 
             if source_id is None:
                 continue
@@ -414,56 +475,124 @@ class SearchService:
 
                 merged[source_id] = {
                     **item,
-                    "rrf_score": 0.0,
-                    "dense_rank": None,
                     "lexical_rank": None,
+                    "dense_rank": rank,
+                    "dense_score": float(
+                        item.get("score", 0.0)
+                    ),
+                    "hybrid_score": 0.0,
                 }
 
-            merged[source_id]["rrf_score"] += (
-                1.0 / (cls.RRF_K + rank)
-            )
+            else:
 
-            merged[source_id]["lexical_rank"] = rank
+                merged[source_id]["dense_rank"] = rank
+
+                merged[source_id][
+                    "dense_score"
+                ] = float(
+                    item.get("score", 0.0)
+                )
 
         # ------------------------------------------------------
-        # Bonus lorsque les 2 méthodes trouvent le même document
+        # Calcul du score hybride
         # ------------------------------------------------------
+
+        max_lexical = max(
+            (
+                float(
+                    item.get("score", 0.0)
+                )
+                for item in lexical_results
+            ),
+            default=1.0,
+        )
 
         for item in merged.values():
 
-            if (
-                item["dense_rank"] is not None
-                and item["lexical_rank"] is not None
-            ):
-                item["rrf_score"] += 0.01
+            lexical_score = float(
+                item.get("score", 0.0)
+            )
 
-        results = list(merged.values())
+            if item.get("retrieval_type") == "dense":
+                lexical_score = 0.0
+
+            if max_lexical > 0:
+                lexical_normalized = (
+                    lexical_score / max_lexical
+                )
+            else:
+                lexical_normalized = 0.0
+
+            dense_score = float(
+                item.get("dense_score", 0.0)
+            )
+
+            # Score hybride
+            hybrid_score = (
+                0.65 * lexical_normalized
+                + 0.35 * dense_score
+            )
+
+            # Très gros bonus pour une expression exacte
+            if item.get("exact_phrase"):
+                hybrid_score += 0.35
+
+            # Bonus si les deux méthodes trouvent le passage
+            if (
+                item.get("lexical_rank") is not None
+                and item.get("dense_rank") is not None
+            ):
+                hybrid_score += 0.10
+
+            item["hybrid_score"] = hybrid_score
+
+        results = list(
+            merged.values()
+        )
 
         # ------------------------------------------------------
         # Tri
         # ------------------------------------------------------
 
         results.sort(
-            key=lambda x: x["rrf_score"],
+            key=lambda item: item[
+                "hybrid_score"
+            ],
             reverse=True,
         )
 
         # ------------------------------------------------------
-        # Normalisation du score pour le frontend
-        # 0.0 → 1.0
+        # Score affiché entre 0 et 1
         # ------------------------------------------------------
 
-        if results:
+        for item in results:
 
-            max_score = results[0]["rrf_score"]
+            item["score"] = min(
+                item["hybrid_score"],
+                1.0,
+            )
 
-            for item in results:
+        # ------------------------------------------------------
+        # DEBUG
+        # ------------------------------------------------------
 
-                if max_score > 0:
-                    item["score"] = (
-                        item["rrf_score"] / max_score
-                    )
-                else:
-                    item["score"] = 0.0
+        print("\n========== SEARCH HYBRID ==========")
+        print(f"Query: {query}")
+
+        for index, item in enumerate(
+            results[:top_k],
+            start=1,
+        ):
+            print(
+                f"[{index}] "
+                f"id={item.get('id_source')} | "
+                f"score={item.get('score', 0):.3f} | "
+                f"exact={item.get('exact_phrase')} | "
+                f"dense_rank={item.get('dense_rank')} | "
+                f"lexical_rank={item.get('lexical_rank')} | "
+                f"title={item.get('titre_document')}"
+            )
+
+        print("===================================\n")
 
         return results[:top_k]
