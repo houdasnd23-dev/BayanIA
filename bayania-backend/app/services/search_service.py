@@ -633,3 +633,28 @@ class SearchService:
         # ------------------------------------------------------
 
         return final_results[:top_k]
+             # ------------------------------------------------------
+        # 7. Déduplication par document
+        # ------------------------------------------------------
+
+        unique_documents = []
+        seen_documents = set()
+
+        for item in final_results:
+
+            title = item.get("titre_document")
+
+            if not title:
+                title = f"source_{item.get('id_source')}"
+
+            # Un seul résultat principal par document
+            if title in seen_documents:
+                continue
+
+            seen_documents.add(title)
+            unique_documents.append(item)
+
+            if len(unique_documents) >= top_k:
+                break
+
+        return unique_documents
