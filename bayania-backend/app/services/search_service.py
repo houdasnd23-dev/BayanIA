@@ -33,6 +33,52 @@ class SearchService:
     FINAL_TOP_K = 10
 
     # ==========================================================
+    # ECHELLES FIXES POUR LA NORMALISATION
+    # ==========================================================
+    #
+    # IMPORTANT : on normalise désormais par rapport à un score
+    # maximal théorique FIXE, pas par rapport au meilleur résultat
+    # du lot courant. Sinon, quand aucun document n'est vraiment
+    # pertinent, le "moins pire" du lot se retrouve normalisé à 1.0
+    # et affiché comme s'il était parfaitement pertinent.
+    #
+    # Valeurs calibrées sur les barèmes de exact_search()/lexical_search():
+    #   - exact_search : titre(100) + contenu(55) + occurrences(25) + couverture(25) = 205 max
+    #   - lexical_search : phrase titre(35) + termes(bonus 20) + expression exacte(30) = ~110 max
+    EXACT_SCALE = 150.0
+    LEXICAL_SCALE = 90.0
+
+    # ==========================================================
+    # TERMES JURIDIQUES GENERIQUES
+    # ==========================================================
+    #
+    # Mots très fréquents dans les textes juridiques/administratifs
+    # marocains (BO, règlements internes, etc.) qui, pris seuls,
+    # n'apportent presque aucun signal de pertinence. On réduit leur
+    # poids dans le score lexical/exact pour éviter que des documents
+    # hors-sujet remontent juste parce qu'ils contiennent "مجلس" ou
+    # "مراقبة" plusieurs fois.
+    GENERIC_TERMS = {
+        "مجلس",
+        "مراقبة",
+        "قانون",
+        "دستور",
+        "لجنة",
+        "وزارة",
+        "دور",
+        "عمليات",
+        "نظام",
+        "conseil",
+        "loi",
+        "controle",
+        "contrôle",
+        "role",
+        "rôle",
+    }
+
+    GENERIC_TERM_WEIGHT = 0.35  # poids appliqué aux termes génériques (au lieu de 1.0)
+
+    # ==========================================================
     # NORMALISATION
     # ==========================================================
 
@@ -330,7 +376,8 @@ class SearchService:
 
             terms = cls.extract_terms(query)
 
-            matched_terms = 0
+            matched_weight = 0.0
+            total_weight = 0.0
 
             for term in terms:
 
@@ -341,15 +388,27 @@ class SearchService:
                 if not normalized_term:
                     continue
 
+                # Les termes génériques (ex: "مجلس", "مراقبة")
+                # comptent moins dans la couverture : ils sont
+                # présents dans énormément de documents et ne
+                # discriminent pas la vraie pertinence.
+                term_weight = (
+                    cls.GENERIC_TERM_WEIGHT
+                    if normalized_term in cls.GENERIC_TERMS
+                    else 1.0
+                )
+
+                total_weight += term_weight
+
                 if (
                     normalized_term in title
                     or normalized_term in article
                     or normalized_term in content
                 ):
-                    matched_terms += 1
+                    matched_weight += term_weight
 
-            if terms:
-                coverage = matched_terms / len(terms)
+            if total_weight > 0:
+                coverage = matched_weight / total_weight
                 score += coverage * 25.0
 
             # Ne conserver que les vrais matchs
@@ -506,18 +565,28 @@ class SearchService:
                 if not term:
                     continue
 
+                # Pondération réduite pour les mots juridiques
+                # trop génériques (ex: "مجلس", "مراقبة") : ils ne
+                # doivent pas suffire, à eux seuls, à faire remonter
+                # un document hors-sujet.
+                weight = (
+                    cls.GENERIC_TERM_WEIGHT
+                    if term in cls.GENERIC_TERMS
+                    else 1.0
+                )
+
                 found = False
 
                 if term in title:
-                    score += 7.0
+                    score += 7.0 * weight
                     found = True
 
                 if term in article:
-                    score += 5.0
+                    score += 5.0 * weight
                     found = True
 
                 if term in content:
-                    score += 1.5
+                    score += 1.5 * weight
                     found = True
 
                 if found:
@@ -662,22 +731,6 @@ class SearchService:
 
         ranked_results: List[Dict[str, Any]] = []
 
-        max_lexical_score = max(
-            (
-                float(item.get("score", 0.0))
-                for item in lexical_results
-            ),
-            default=1.0,
-        )
-
-        max_exact_score = max(
-            (
-                float(item.get("exact_score", 0.0))
-                for item in exact_results
-            ),
-            default=1.0,
-        )
-
         for source_id in all_ids:
 
             exact_item = exact_by_id.get(
@@ -733,10 +786,12 @@ class SearchService:
                     )
                 )
 
-            lexical_normalized = (
-                lexical_score / max_lexical_score
-                if max_lexical_score > 0
-                else 0.0
+            # Normalisation à échelle FIXE (pas relative au lot) :
+            # un score faible reste faible même si c'est le "moins
+            # pire" résultat de la requête.
+            lexical_normalized = min(
+                lexical_score / cls.LEXICAL_SCALE,
+                1.0,
             )
 
             exact_score = 0.0
@@ -749,10 +804,9 @@ class SearchService:
                     )
                 )
 
-            exact_normalized = (
-                exact_score / max_exact_score
-                if max_exact_score > 0
-                else 0.0
+            exact_normalized = min(
+                exact_score / cls.EXACT_SCALE,
+                1.0,
             )
 
             # ==================================================
