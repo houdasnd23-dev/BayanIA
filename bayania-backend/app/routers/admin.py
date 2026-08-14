@@ -84,8 +84,9 @@ async def upload_document(
     try:
         loop = asyncio.get_running_loop()
         contenu_texte = await loop.run_in_executor(
-              None, lambda: extract_text_docling(tmp_path, force_ocr=True)
-            )
+    None,
+    lambda: extract_text_docling(tmp_path, force_ocr=False)
+)
     finally:
         os.unlink(tmp_path)  # nettoyage systématique, même en cas d'erreur
 
