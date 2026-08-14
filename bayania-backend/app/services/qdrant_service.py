@@ -1,8 +1,11 @@
+import logging
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse
 from typing import List, Dict, Any, Optional
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 class QdrantService:
     _client: Optional[QdrantClient] = None
     COLLECTION_NAME = "sources_juridiques"
@@ -75,18 +78,32 @@ class QdrantService:
         
         limit = top_k if top_k is not None else settings.RAG_TOP_K
         score_threshold = min_score if min_score is not None else settings.RAG_MIN_SCORE
-        
-        search_result = client.query_points(
+
+        # DIAGNOSTIC : on récupère plus large et SANS score_threshold côté Qdrant,
+        # pour voir tous les candidats bruts avant filtrage -> à retirer une fois
+        # le bon seuil validé empiriquement.
+        diagnostic_limit = max(limit * 3, 15)
+        raw_result = client.query_points(
              collection_name=cls.COLLECTION_NAME,
              query=query_vector,
-             limit=limit,
-             score_threshold=score_threshold,
+             limit=diagnostic_limit,
              query_filter=models.Filter(
              must=[models.FieldCondition(key="statut_validite", match=models.MatchValue(value=True))])
     ).points
-        
+
+        logger.info(f"[RAG DIAGNOSTIC] {len(raw_result)} candidats bruts (avant seuil={score_threshold}) :")
+        for hit in raw_result:
+            logger.info(
+                f"[RAG DIAGNOSTIC]   score={hit.score:.4f} | "
+                f"titre={hit.payload.get('titre_document')} | "
+                f"article={hit.payload.get('numero_article')}"
+            )
+
+        # Filtrage + troncature appliqués ici (au lieu de score_threshold serveur)
+        filtered = [hit for hit in raw_result if hit.score >= score_threshold][:limit]
+
         results = []
-        for hit in search_result:
+        for hit in filtered:
             results.append({
                 "id_source": hit.payload.get("id_source"),
                 "titre_document": hit.payload.get("titre_document"),
@@ -95,7 +112,7 @@ class QdrantService:
                 "type_source": hit.payload.get("type_source"),
                 "score": hit.score
             })
-                    
+
         return results
     @classmethod
     async def delete_points(cls, source_ids: List[int]) -> bool:

@@ -63,8 +63,8 @@ class Settings(BaseSettings):
     # ==========================
     # RAG
     # ==========================
-    RAG_TOP_K: int = 4
-    RAG_MIN_SCORE: float = 0.5
+    RAG_TOP_K: int = 10
+    RAG_MIN_SCORE: float = 0.35
 
     # ==========================
     # Storage
