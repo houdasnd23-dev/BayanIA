@@ -412,165 +412,164 @@ class SearchService:
     # RECHERCHE HYBRIDE
     # ==========================================================
 
-@classmethod
-async def hybrid_search(
-    cls,
-    db: AsyncSession,
-    query: str,
-    top_k: int = FINAL_TOP_K,
-) -> List[Dict[str, Any]]:
+    # ==========================================================
+    # RECHERCHE HYBRIDE
+    # ==========================================================
 
-    # ------------------------------------------------------
-    # 1. Recherche lexicale
-    # ------------------------------------------------------
+    @classmethod
+    async def hybrid_search(
+        cls,
+        db: AsyncSession,
+        query: str,
+        top_k: int = FINAL_TOP_K,
+    ) -> List[Dict[str, Any]]:
 
-    lexical_results = await cls.lexical_search(
-        db,
-        query,
-    )
+        # ------------------------------------------------------
+        # 1. Recherche lexicale
+        # ------------------------------------------------------
 
-    # ------------------------------------------------------
-    # 2. Recherche dense
-    # ------------------------------------------------------
-
-    dense_results = await cls.dense_search(
-        query,
-    )
-
-    # ------------------------------------------------------
-    # 3. Séparer les résultats lexicaux exacts
-    # ------------------------------------------------------
-
-    exact_results = [
-        item
-        for item in lexical_results
-        if item.get("exact_phrase") is True
-    ]
-
-    non_exact_results = [
-        item
-        for item in lexical_results
-        if item.get("exact_phrase") is not True
-    ]
-
-    # ------------------------------------------------------
-    # 4. Pour une correspondance exacte :
-    #    priorité absolue au lexical
-    # ------------------------------------------------------
-
-    final_results = []
-
-    used_ids = set()
-
-    for item in exact_results:
-
-        source_id = item.get("id_source")
-
-        if source_id is None:
-            continue
-
-        if source_id in used_ids:
-            continue
-
-        used_ids.add(source_id)
-
-        item["score"] = 1.0
-        item["search_type"] = "exact"
-
-        final_results.append(item)
-
-    # ------------------------------------------------------
-    # 5. Ajouter les résultats trouvés par les deux méthodes
-    # ------------------------------------------------------
-
-    dense_by_id = {
-        item.get("id_source"): item
-        for item in dense_results
-        if item.get("id_source") is not None
-    }
-
-    for item in non_exact_results:
-
-        source_id = item.get("id_source")
-
-        if source_id is None:
-            continue
-
-        if source_id in used_ids:
-            continue
-
-        dense_item = dense_by_id.get(source_id)
-
-        lexical_score = float(
-            item.get("score", 0.0)
+        lexical_results = await cls.lexical_search(
+            db,
+            query,
         )
+
+        # ------------------------------------------------------
+        # 2. Recherche dense
+        # ------------------------------------------------------
+
+        dense_results = await cls.dense_search(
+            query,
+        )
+
+        # ------------------------------------------------------
+        # 3. Séparer les résultats lexicaux exacts
+        # ------------------------------------------------------
+
+        exact_results = [
+            item
+            for item in lexical_results
+            if item.get("exact_phrase") is True
+        ]
+
+        non_exact_results = [
+            item
+            for item in lexical_results
+            if item.get("exact_phrase") is not True
+        ]
+
+        # ------------------------------------------------------
+        # 4. Priorité aux correspondances exactes
+        # ------------------------------------------------------
+
+        final_results = []
+        used_ids = set()
+
+        for item in exact_results:
+
+            source_id = item.get("id_source")
+
+            if source_id is None:
+                continue
+
+            if source_id in used_ids:
+                continue
+
+            used_ids.add(source_id)
+
+            item["score"] = 1.0
+            item["search_type"] = "exact"
+
+            final_results.append(item)
+
+        # ------------------------------------------------------
+        # 5. Résultats lexical + dense
+        # ------------------------------------------------------
+
+        dense_by_id = {
+            item.get("id_source"): item
+            for item in dense_results
+            if item.get("id_source") is not None
+        }
 
         max_lexical = max(
             (
-                float(
-                    x.get("score", 0.0)
-                )
-                for x in lexical_results
+                float(item.get("score", 0.0))
+                for item in lexical_results
             ),
             default=1.0,
         )
 
-        lexical_normalized = (
-            lexical_score / max_lexical
-            if max_lexical > 0
-            else 0.0
-        )
+        for item in non_exact_results:
 
-        dense_score = 0.0
+            source_id = item.get("id_source")
 
-        if dense_item:
-            dense_score = float(
-                dense_item.get("score", 0.0)
+            if source_id is None:
+                continue
+
+            if source_id in used_ids:
+                continue
+
+            dense_item = dense_by_id.get(source_id)
+
+            lexical_score = float(
+                item.get("score", 0.0)
             )
 
-        # Recherche hybride
-        score = (
-            0.65 * lexical_normalized
-            + 0.35 * dense_score
-        )
+            lexical_normalized = (
+                lexical_score / max_lexical
+                if max_lexical > 0
+                else 0.0
+            )
 
-        item["score"] = min(score, 0.99)
+            dense_score = 0.0
 
-        if dense_item:
-            item["search_type"] = "hybrid"
-        else:
-            item["search_type"] = "lexical"
+            if dense_item:
+                dense_score = float(
+                    dense_item.get("score", 0.0)
+                )
 
-        used_ids.add(source_id)
+            score = (
+                0.65 * lexical_normalized
+                + 0.35 * dense_score
+            )
 
-        final_results.append(item)
+            item["score"] = min(score, 0.99)
 
-    # ------------------------------------------------------
-    # 6. Ajouter les résultats uniquement sémantiques
-    # ------------------------------------------------------
+            if dense_item:
+                item["search_type"] = "hybrid"
+            else:
+                item["search_type"] = "lexical"
 
-    for item in dense_results:
+            used_ids.add(source_id)
 
-        source_id = item.get("id_source")
+            final_results.append(item)
 
-        if source_id is None:
-            continue
+        # ------------------------------------------------------
+        # 6. Résultats uniquement sémantiques
+        # ------------------------------------------------------
 
-        if source_id in used_ids:
-            continue
+        for item in dense_results:
 
-        item["score"] = float(
-            item.get("score", 0.0)
-        )
+            source_id = item.get("id_source")
 
-        item["search_type"] = "semantic"
+            if source_id is None:
+                continue
 
-        used_ids.add(source_id)
+            if source_id in used_ids:
+                continue
 
-        final_results.append(item)
+            item["score"] = float(
+                item.get("score", 0.0)
+            )
 
-    # ------------------------------------------------------
-    # 7. Limiter le nombre final
-    # ------------------------------------------------------
+            item["search_type"] = "semantic"
 
-    return final_results[:top_k]
+            used_ids.add(source_id)
+
+            final_results.append(item)
+
+        # ------------------------------------------------------
+        # 7. Résultats finaux
+        # ------------------------------------------------------
+
+        return final_results[:top_k]
