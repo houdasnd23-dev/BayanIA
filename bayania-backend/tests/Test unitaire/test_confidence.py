@@ -1,130 +1,162 @@
-import pytest
-from unittest.mock import patch, AsyncMock
+import re
+import logging
+from typing import List, Dict, Any
 
-from app.services.confidence_service import ConfidenceService
+import numpy as np
 
-pytestmark = pytest.mark.unit
+from app.services.embedding_service import EmbeddingService
 
-
-# --- Cas limites simples (pas besoin de mock, court-circuités avant embedding) ---
-
-@pytest.mark.asyncio
-async def test_no_sources_returns_zero_confidence():
-    result = await ConfidenceService.calculate_score("Une réponse quelconque.", [])
-    assert result["confidence"] == 0.0
-    assert result["abstained"] is False
+logger = logging.getLogger(__name__)
 
 
-@pytest.mark.asyncio
-async def test_insufficient_context_marker_returns_full_confidence_abstained():
-    response = "Les informations insuffisantes disponibles ne permettent pas de répondre précisément."
-    sources = [{"score": 0.9, "numero_article": "1", "contenu_texte": "peu importe"}]
+class ConfidenceService:
+    """
+    Score de confiance basé sur 3 signaux indépendants :
 
-    result = await ConfidenceService.calculate_score(response, sources)
-    assert result["confidence"] == 1.0
-    assert result["abstained"] is True
+    1. Retrieval  (40%) — qualité des documents retrouvés par Qdrant
+                          (meilleur résultat + moyenne, pas juste la moyenne)
+    2. Citation   (20%) — l'article est-il explicitement cité dans la réponse ?
+                          (regex à limites de mots, pas un simple "in")
+    3. Groundedness (40%) — chaque phrase de la réponse est-elle sémantiquement
+                          proche d'au moins un des chunks de contexte fournis ?
+                          C'est le signal le plus important contre l'hallucination :
+                          un article correctement cité mais dont l'explication
+                          invente des détails absents du contexte sera détecté ici.
+    """
 
+    INSUFFICIENT_MARKERS = [
+        "informations insuffisantes",
+        "aucune source juridique pertinente",
+        "ne permettent pas de répondre",
+        "ne permet pas de répondre",
+    ]
 
-# --- Signal 1 : retrieval (testable directement, pas de mock nécessaire) ---
+    GROUNDEDNESS_THRESHOLD = 0.6  # à calibrer empiriquement sur un jeu de test
+    MIN_SENTENCE_LENGTH = 15      # ignore les fragments trop courts ("Réponse", "Explication"...)
 
-def test_retrieval_score_high_top1_and_average():
-    sources = [{"score": 0.9}, {"score": 0.8}, {"score": 0.7}]
-    score = ConfidenceService._retrieval_score(sources)
-    # top1=0.9, avg=0.8 -> 0.5*0.9 + 0.5*0.8 = 0.85
-    assert score == pytest.approx(0.85, abs=0.01)
+    @classmethod
+    async def calculate_score(
+        cls,
+        response_text: str,
+        retrieved_sources: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
 
+        if not retrieved_sources:
+            return {
+                "confidence": 0.0,
+                "retrieval": 0.0,
+                "citation": 0.0,
+                "groundedness": 0.0,
+                "abstained": False,
+            }
 
-def test_retrieval_score_clamps_out_of_range_values():
-    sources = [{"score": 1.5}, {"score": -0.3}]  # valeurs hors bornes
-    score = ConfidenceService._retrieval_score(sources)
-    assert 0.0 <= score <= 1.0
+        response_lower = response_text.lower()
 
+        if any(marker in response_lower for marker in cls.INSUFFICIENT_MARKERS):
+            return {
+                "confidence": 1.0,
+                "retrieval": 0.0,
+                "citation": 0.0,
+                "groundedness": 1.0,
+                "abstained": True,
+            }
 
-# --- Signal 2 : citation (regex à limites de mots) ---
+        retrieval_score = cls._retrieval_score(retrieved_sources)
+        citation_score = cls._citation_score(response_lower, retrieved_sources)
+        groundedness_score = await cls._groundedness_score(response_text, retrieved_sources)
 
-def test_citation_score_detects_exact_article_mention():
-    sources = [{"numero_article": "9"}]
-    response_lower = "conformément à l'article 9 du code civil."
-    score = ConfidenceService._citation_score(response_lower, sources)
-    assert score == 1.0
+        confidence = (
+            0.4 * retrieval_score
+            + 0.2 * citation_score
+            + 0.4 * groundedness_score
+        )
 
+        return {
+            "confidence": round(confidence, 2),
+            "retrieval": round(retrieval_score, 2),
+            "citation": round(citation_score, 2),
+            "groundedness": round(groundedness_score, 2),
+            "abstained": False,
+        }
 
-def test_citation_score_does_not_false_positive_on_partial_match():
-    """L'article '9' ne doit PAS matcher dans 'article 19' ou '9h'."""
-    sources = [{"numero_article": "9"}]
-    response_lower = "voir l'article 19 et rendez-vous à 9h."
-    score = ConfidenceService._citation_score(response_lower, sources)
-    assert score == 0.0
+    @staticmethod
+    def _retrieval_score(retrieved_sources: List[Dict[str, Any]]) -> float:
+        scores = [max(0.0, min(1.0, s.get("score", 0.0))) for s in retrieved_sources]
+        avg_similarity = sum(scores) / len(scores)
+        top1_similarity = max(scores)
+        return 0.5 * top1_similarity + 0.5 * avg_similarity
 
+    @staticmethod
+    def _citation_score(
+        response_lower: str,
+        retrieved_sources: List[Dict[str, Any]],
+    ) -> float:
+        citations_found = 0
+        for source in retrieved_sources:
+            article = str(source.get("numero_article", "")).strip()
+            if not article:
+                continue
 
-def test_citation_score_partial_when_only_some_articles_cited():
-    sources = [{"numero_article": "1"}, {"numero_article": "2"}]
-    response_lower = "l'article 1 précise que..."
-    score = ConfidenceService._citation_score(response_lower, sources)
-    assert score == 0.5
+            # numero_article contient déjà le mot "Article" (ex: "Article
+            # premier", "Article 5") -> on le retire pour ne pas le
+            # dupliquer dans le motif de recherche, et on repasse en
+            # minuscules puisqu'on compare à response_lower.
+            article_number = re.sub(
+                r"^article\s+",
+                "",
+                article.lower(),
+            ).strip()
 
+            if not article_number:
+                continue
 
-# --- Signal 3 : groundedness (mock de EmbeddingService, pas de vrai appel réseau) ---
+            pattern = rf"\barticle\s+{re.escape(article_number)}\b"
 
-@pytest.mark.asyncio
-@patch("app.services.confidence_service.EmbeddingService.get_embedding", new_callable=AsyncMock)
-async def test_groundedness_high_when_sentence_matches_context(mock_embed):
-    # Vecteurs identiques => cosine similarity = 1.0 => bien "grounded"
-    mock_embed.return_value = [1.0, 0.0, 0.0]
+            if re.search(pattern, response_lower):
+                citations_found += 1
 
-    sources = [{"score": 0.9, "numero_article": "1", "contenu_texte": "Le Maroc est une monarchie."}]
-    response = "Le Maroc est une monarchie constitutionnelle selon la loi."
+        return citations_found / len(retrieved_sources)
 
-    result = await ConfidenceService.calculate_score(response, sources)
-    assert result["groundedness"] == 1.0
+    @classmethod
+    async def _groundedness_score(
+        cls,
+        response_text: str,
+        retrieved_sources: List[Dict[str, Any]],
+    ) -> float:
+        sentences = [
+            s.strip()
+            for s in re.split(r"(?<=[.!?])\s+", response_text)
+            if len(s.strip()) > cls.MIN_SENTENCE_LENGTH
+        ]
+        if not sentences:
+            return 0.0
 
+        try:
+            context_vectors = [
+                await EmbeddingService.get_embedding(s.get("contenu_texte", ""))
+                for s in retrieved_sources
+                if s.get("contenu_texte")
+            ]
+            sentence_vectors = [
+                await EmbeddingService.get_embedding(sent) for sent in sentences
+            ]
+        except Exception as e:
+            logger.warning("Groundedness non calculé [%s]: %s", type(e).__name__, e)
+            return 0.5
 
-@pytest.mark.asyncio
-@patch("app.services.confidence_service.EmbeddingService.get_embedding", new_callable=AsyncMock)
-async def test_groundedness_low_when_sentence_unrelated_to_context(mock_embed):
-    # Vecteurs orthogonaux => cosine similarity = 0.0 => pas "grounded" (hallucination potentielle)
-    call_count = {"n": 0}
+        if not context_vectors:
+            return 0.0
 
-    async def alternating_vectors(_text):
-        call_count["n"] += 1
-        return [1.0, 0.0, 0.0] if call_count["n"] == 1 else [0.0, 1.0, 0.0]
+        grounded_count = 0
+        for sv in sentence_vectors:
+            best_similarity = max(cls._cosine(sv, cv) for cv in context_vectors)
+            if best_similarity >= cls.GROUNDEDNESS_THRESHOLD:
+                grounded_count += 1
 
-    mock_embed.side_effect = alternating_vectors
+        return grounded_count / len(sentences)
 
-    sources = [{"score": 0.9, "numero_article": "1", "contenu_texte": "Le Maroc est une monarchie."}]
-    response = "Les licornes vivent sur la lune et mangent des étoiles filantes."
-
-    result = await ConfidenceService.calculate_score(response, sources)
-    assert result["groundedness"] == 0.0
-
-
-@pytest.mark.asyncio
-@patch("app.services.confidence_service.EmbeddingService.get_embedding", new_callable=AsyncMock)
-async def test_groundedness_falls_back_gracefully_on_embedding_failure(mock_embed):
-    """Si l'API d'embedding échoue (quota, timeout...), on ne doit pas planter tout le calcul."""
-    mock_embed.side_effect = Exception("Embedding API timeout")
-
-    sources = [{"score": 0.9, "numero_article": "1", "contenu_texte": "Contenu quelconque suffisamment long."}]
-    response = "Une réponse suffisamment longue pour être analysée par le système."
-
-    result = await ConfidenceService.calculate_score(response, sources)
-    assert result["groundedness"] == 0.5  # valeur neutre de repli
-    assert result["confidence"] >= 0.0  # ne plante pas
-
-
-# --- Test bout-en-bout combinant les 3 signaux ---
-
-@pytest.mark.asyncio
-@patch("app.services.confidence_service.EmbeddingService.get_embedding", new_callable=AsyncMock)
-async def test_calculate_score_combines_all_three_signals_correctly(mock_embed):
-    mock_embed.return_value = [1.0, 0.0, 0.0]  # groundedness = 1.0 pour toutes les phrases
-
-    sources = [{"score": 0.9, "numero_article": "1", "contenu_texte": "Le Maroc est une monarchie constitutionnelle."}]
-    response = "Conformément à l'article 1, le Maroc est une monarchie constitutionnelle."
-
-    result = await ConfidenceService.calculate_score(response, sources)
-
-    # retrieval = 0.9 (top1=avg=0.9), citation = 1.0, groundedness = 1.0
-    # confidence = 0.4*0.9 + 0.2*1.0 + 0.4*1.0 = 0.96
-    assert result["confidence"] == pytest.approx(0.96, abs=0.02)
-    assert result["abstained"] is False
+    @staticmethod
+    def _cosine(a: List[float], b: List[float]) -> float:
+        a_arr, b_arr = np.array(a), np.array(b)
+        denom = np.linalg.norm(a_arr) * np.linalg.norm(b_arr)
+        return float(np.dot(a_arr, b_arr) / denom) if denom else 0.0

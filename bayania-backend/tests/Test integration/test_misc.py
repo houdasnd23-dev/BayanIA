@@ -53,8 +53,8 @@ async def test_list_questions_returns_only_own_questions(client: AsyncClient, db
 from unittest.mock import patch
 
 @pytest.mark.asyncio
-@patch("app.routers.sources.QdrantService.search_similar")
-@patch("app.routers.sources.EmbeddingService.get_embedding")
+@patch("app.services.search_service.QdrantService.search_similar")
+@patch("app.services.search_service.EmbeddingService.get_embedding")
 async def test_search_sources_success(mock_embed, mock_search, client: AsyncClient, db_session: AsyncSession):
     from app.models.source_juridique import SourceJuridique
     from app.models.importation_document import ImportationDocument
@@ -95,8 +95,8 @@ async def test_search_sources_success(mock_embed, mock_search, client: AsyncClie
 
 
 @pytest.mark.asyncio
-@patch("app.routers.sources.QdrantService.search_similar")
-@patch("app.routers.sources.EmbeddingService.get_embedding")
+@patch("app.services.search_service.QdrantService.search_similar")
+@patch("app.services.search_service.EmbeddingService.get_embedding")
 async def test_search_sources_no_results(mock_embed, mock_search, client: AsyncClient):
     mock_embed.return_value = [0.1] * 768
     mock_search.return_value = []

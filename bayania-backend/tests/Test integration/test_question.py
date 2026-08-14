@@ -107,18 +107,30 @@ async def test_create_question_success(
 @pytest.mark.asyncio
 async def test_get_question_response_permissions(client: AsyncClient, db_session: AsyncSession):
     # 1. Register users
+    # NOTE : "administrateur" n'est volontairement plus assignable via
+    # /auth/register (fix sécurité : auto-attribution du rôle admin à
+    # l'inscription). On crée donc l'admin en base directement, comme
+    # pour owner_db plus bas, puis on se connecte normalement.
     users = {
         "owner": {"nom_user": "Owner User", "email": "owner@test.com", "mot_de_passe": "pass", "type_profil": "normal"},
         "other": {"nom_user": "Other User", "email": "other@test.com", "mot_de_passe": "pass", "type_profil": "normal"},
         "pro": {"nom_user": "Pro User", "email": "pro@test.com", "mot_de_passe": "pass", "type_profil": "professionnel"},
-        "admin": {"nom_user": "Admin User", "email": "admin@test.com", "mot_de_passe": "pass", "type_profil": "administrateur"}
+        "admin": {"nom_user": "Admin User", "email": "admin@test.com", "mot_de_passe": "pass", "type_profil": "normal"},
     }
-    
+
     tokens = {}
     for key, val in users.items():
         await client.post("/auth/register", json=val)
         login_res = await client.post("/auth/login", json={"email": val["email"], "mot_de_passe": val["mot_de_passe"]})
         tokens[key] = login_res.json()["access_token"]
+
+    # Promotion de l'utilisateur "admin" en base, hors du flux public
+    from app.models.user import User as _User
+    from sqlalchemy.future import select as _select
+    res_admin = await db_session.execute(_select(_User).where(_User.email == "admin@test.com"))
+    admin_db = res_admin.scalar_one()
+    admin_db.type_profil = "administrateur"
+    await db_session.commit()
         
     # Get creator user model to associate with the question
     # We query the DB for the owner user ID
