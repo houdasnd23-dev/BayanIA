@@ -1,7 +1,7 @@
 from typing import List, Dict, Any
 import re
 
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_,func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.source_juridique import SourceJuridique
@@ -194,7 +194,73 @@ class SearchService:
                 terms.append(token)
 
         return terms[:20]
+    @classmethod
+    async def exact_search(
+        cls,
+        db: AsyncSession,
+        query: str,
+    ) -> List[Dict[str, Any]]:
 
+        query = cls.normalize_for_sql(query)
+
+        if not query:
+            return []
+
+        # Recherche exacte de l'expression complète.
+        # On normalise les espaces dans PostgreSQL pour gérer
+        # les espaces normaux, insécables ou multiples provenant de l'OCR.
+        normalized_content = func.regexp_replace(
+            SourceJuridique.contenu_texte,
+            r"[[:space:]]+",
+            " ",
+            "g",
+        )
+
+        normalized_title = func.regexp_replace(
+            SourceJuridique.titre_document,
+            r"[[:space:]]+",
+            " ",
+            "g",
+        )
+
+        normalized_article = func.regexp_replace(
+            SourceJuridique.numero_article,
+            r"[[:space:]]+",
+            " ",
+            "g",
+        )
+
+        pattern = f"%{query}%"
+
+        stmt = (
+            select(SourceJuridique)
+            .where(
+                SourceJuridique.statut_validite.is_(True),
+                or_(
+                    normalized_content.ilike(pattern),
+                    normalized_title.ilike(pattern),
+                    normalized_article.ilike(pattern),
+                ),
+            )
+            .limit(20)
+        )
+
+        result = await db.execute(stmt)
+        sources = result.scalars().all()
+
+        return [
+            {
+                "id_source": source.id_source,
+                "titre_document": source.titre_document,
+                "numero_article": source.numero_article,
+                "contenu_texte": source.contenu_texte,
+                "type_source": source.type_source,
+                "score": 1.0,
+                "exact_phrase": True,
+                "retrieval_type": "exact",
+            }
+            for source in sources
+        ]
     # ==========================================================
     # RECHERCHE LEXICALE
     # ==========================================================
@@ -425,7 +491,16 @@ class SearchService:
     ) -> List[Dict[str, Any]]:
 
         # ------------------------------------------------------
-        # 1. Recherche lexicale
+        # 1. Recherche exacte PostgreSQL
+        # ------------------------------------------------------
+
+        exact_results = await cls.exact_search(
+            db,
+            query,
+        )
+
+        # ------------------------------------------------------
+        # 2. Recherche lexicale
         # ------------------------------------------------------
 
         lexical_results = await cls.lexical_search(
@@ -434,35 +509,19 @@ class SearchService:
         )
 
         # ------------------------------------------------------
-        # 2. Recherche dense
+        # 3. Recherche sémantique
         # ------------------------------------------------------
 
         dense_results = await cls.dense_search(
             query,
         )
 
-        # ------------------------------------------------------
-        # 3. Séparer les résultats lexicaux exacts
-        # ------------------------------------------------------
-
-        exact_results = [
-            item
-            for item in lexical_results
-            if item.get("exact_phrase") is True
-        ]
-
-        non_exact_results = [
-            item
-            for item in lexical_results
-            if item.get("exact_phrase") is not True
-        ]
-
-        # ------------------------------------------------------
-        # 4. Priorité aux correspondances exactes
-        # ------------------------------------------------------
-
         final_results = []
         used_ids = set()
+
+        # ------------------------------------------------------
+        # PRIORITE ABSOLUE AUX MATCHS EXACTS
+        # ------------------------------------------------------
 
         for item in exact_results:
 
@@ -474,13 +533,14 @@ class SearchService:
             if source_id in used_ids:
                 continue
 
-            used_ids.add(source_id)
-
             item["score"] = 1.0
             item["search_type"] = "exact"
 
+            used_ids.add(source_id)
             final_results.append(item)
 
+            if len(final_results) >= top_k:
+                return final_results[:top_k]
         # ------------------------------------------------------
         # 5. Résultats lexical + dense
         # ------------------------------------------------------
