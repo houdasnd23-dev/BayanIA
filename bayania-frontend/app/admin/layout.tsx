@@ -1,7 +1,9 @@
+import AdminRoute from "@/components/auth/AdminRoute";
+
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <>{children}</>;
+  return <AdminRoute>{children}</AdminRoute>;
 }

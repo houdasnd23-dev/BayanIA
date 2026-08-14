@@ -200,6 +200,11 @@ async function requestFormData(endpoint: string, formData: FormData) {
     body: formData,
   });
 
+  if (res.status === 401) {
+    clearToken();
+    throw new Error("Session expirée, veuillez vous reconnecter.");
+  }
+
   if (!res.ok) {
     const errorData = await res.json().catch(() => null);
     throw new Error(extractErrorMessage(errorData));
@@ -297,8 +302,8 @@ export interface SourceSearchResult {
 }
 
 export const sourcesApi = {
-  search: (query: string): Promise<SourceSearchResult[]> =>
-    request(`/sources/search?query=${encodeURIComponent(query)}`, {
+  search: (query: string, top_k: number = 10): Promise<SourceSearchResult[]> =>
+    request(`/sources/search?q=${encodeURIComponent(query)}&top_k=${top_k}`, {
       method: "GET",
     }),
 };

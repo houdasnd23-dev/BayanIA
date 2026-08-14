@@ -1,6 +1,6 @@
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
-export default function DashboardLayout({
+export default function AnalysePdfLayout({
   children,
 }: {
   children: React.ReactNode;
