@@ -90,7 +90,7 @@ class QdrantService:
              query_filter=models.Filter(
              must=[models.FieldCondition(key="statut_validite", match=models.MatchValue(value=True))])
     ).points
-
+      
         logger.info(f"[RAG DIAGNOSTIC] {len(raw_result)} candidats bruts (avant seuil={score_threshold}) :")
         for hit in raw_result:
             logger.info(
