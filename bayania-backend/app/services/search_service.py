@@ -10,6 +10,12 @@ from app.services.qdrant_service import QdrantService
 
 
 class SearchService:
+    """
+    Recherche juridique hybride :
+    - recherche sémantique Qdrant
+    - recherche lexicale PostgreSQL
+    - fusion des résultats
+    """
 
     DENSE_TOP_K = 20
     LEXICAL_TOP_K = 30
@@ -17,20 +23,18 @@ class SearchService:
     RRF_K = 60
 
     @staticmethod
-    def normalize_text(text: str) -> str:
+    def normalize(text: str) -> str:
         if not text:
             return ""
 
         text = text.lower()
 
-        # Diacritiques arabes
+        # Normalisation arabe
         text = re.sub(
             r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]",
             "",
             text,
         )
-
-        # Normalisation arabe
         text = text.replace("أ", "ا")
         text = text.replace("إ", "ا")
         text = text.replace("آ", "ا")
@@ -39,14 +43,11 @@ class SearchService:
         text = text.replace("ة", "ه")
         text = text.replace("ـ", "")
 
-        text = re.sub(r"\s+", " ", text).strip()
-
-        return text
+        return re.sub(r"\s+", " ", text).strip()
 
     @classmethod
     def extract_terms(cls, query: str) -> List[str]:
-
-        text = cls.normalize_text(query)
+        text = cls.normalize(query)
 
         tokens = re.findall(
             r"[\u0600-\u06FF]+|[A-Za-zÀ-ÿ]+|\d+(?:[./-]\d+)*",
@@ -54,64 +55,28 @@ class SearchService:
         )
 
         stopwords = {
-            "ما",
-            "ماذا",
-            "ماهو",
-            "ماهي",
-            "من",
-            "هل",
-            "كيف",
-            "لماذا",
-            "متى",
-            "اين",
-            "في",
-            "عن",
-            "على",
-            "الى",
-            "و",
-            "او",
-            "مع",
-            "هو",
-            "هي",
-            "هذا",
-            "هذه",
-            "الذي",
-            "التي",
-            "حسب",
-            "حول",
-            "بشأن",
-            "بخصوص",
-            "quel",
-            "quelle",
-            "quels",
-            "quelles",
-            "qui",
-            "que",
-            "comment",
-            "pourquoi",
-            "dans",
-            "sur",
-            "avec",
-            "selon",
-            "pour",
-            "des",
-            "les",
-            "une",
-            "un",
-            "de",
-            "du",
-            "la",
-            "le",
-            "et",
-            "ou",
+            # arabe
+            "ما", "ماذا", "ماهو", "ماهي", "من", "هل",
+            "كيف", "لماذا", "متى", "اين", "في", "عن",
+            "على", "الى", "و", "او", "مع", "هو", "هي",
+            "هذا", "هذه", "ذلك", "تلك", "الذي", "التي",
+            "حسب", "حول", "بشأن", "بخصوص",
+
+            # français
+            "quel", "quelle", "quels", "quelles", "qui",
+            "que", "quoi", "comment", "pourquoi", "dans",
+            "sur", "avec", "selon", "pour", "des", "les",
+            "une", "un", "de", "du", "la", "le", "et",
+            "ou", "au", "aux", "par",
         }
 
         tokens = [
-            t for t in tokens
-            if len(t) >= 3 and t not in stopwords
+            token
+            for token in tokens
+            if len(token) >= 3 and token not in stopwords
         ]
 
-        terms = []
+        terms: List[str] = []
 
         # Expressions de plusieurs mots
         for n in (4, 3, 2):
@@ -166,52 +131,47 @@ class SearchService:
         results = []
 
         normalized_terms = [
-            cls.normalize_text(t)
-            for t in terms
+            cls.normalize(term) for term in terms
         ]
 
         for source in sources:
 
-            title = cls.normalize_text(
+            title = cls.normalize(
                 source.titre_document or ""
             )
-
-            content = cls.normalize_text(
+            content = cls.normalize(
                 source.contenu_texte or ""
             )
-
-            article = cls.normalize_text(
+            article = cls.normalize(
                 source.numero_article or ""
             )
 
-            score = 0
-            matches = 0
+            score = 0.0
+
+            matched_terms = 0
 
             for term in normalized_terms:
 
-                if not term:
-                    continue
-
                 if term in title:
-                    score += 5
-                    matches += 1
+                    score += 5.0
+                    matched_terms += 1
 
                 if term in article:
-                    score += 4
-                    matches += 1
+                    score += 4.0
+                    matched_terms += 1
 
                 if term in content:
-                    score += 2
-                    matches += 1
+                    score += 2.0
+                    matched_terms += 1
 
-            if matches == 0:
+            if matched_terms >= 2:
+                score += 3.0
+
+            if matched_terms >= 3:
+                score += 3.0
+
+            if score <= 0:
                 continue
-
-            if matches >= 2:
-                score += 3
-
-            if matches >= 3:
-                score += 3
 
             results.append({
                 "id_source": source.id_source,
@@ -219,11 +179,11 @@ class SearchService:
                 "numero_article": source.numero_article,
                 "contenu_texte": source.contenu_texte,
                 "type_source": source.type_source,
-                "lexical_score": score,
+                "score": score,
             })
 
         results.sort(
-            key=lambda x: x["lexical_score"],
+            key=lambda x: x["score"],
             reverse=True,
         )
 
@@ -258,9 +218,9 @@ class SearchService:
             query,
         )
 
-        merged = {}
+        merged: Dict[int, Dict[str, Any]] = {}
 
-        # Dense
+        # Recherche dense
         for rank, item in enumerate(dense_results, start=1):
 
             source_id = item.get("id_source")
@@ -277,12 +237,12 @@ class SearchService:
                 }
 
             merged[source_id]["rrf_score"] += (
-                1 / (cls.RRF_K + rank)
+                1.0 / (cls.RRF_K + rank)
             )
 
             merged[source_id]["dense_rank"] = rank
 
-        # Lexical
+        # Recherche lexicale
         for rank, item in enumerate(lexical_results, start=1):
 
             source_id = item.get("id_source")
@@ -299,14 +259,13 @@ class SearchService:
                 }
 
             merged[source_id]["rrf_score"] += (
-                1 / (cls.RRF_K + rank)
+                1.0 / (cls.RRF_K + rank)
             )
 
             merged[source_id]["lexical_rank"] = rank
 
-        # Bonus si les deux retrievers trouvent le même résultat
+        # Bonus si trouvé par les deux méthodes
         for item in merged.values():
-
             if (
                 item["dense_rank"] is not None
                 and item["lexical_rank"] is not None
