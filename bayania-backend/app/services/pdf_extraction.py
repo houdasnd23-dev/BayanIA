@@ -7,14 +7,11 @@ from docling.document_converter import DocumentConverter, PdfFormatOption
 logger = logging.getLogger(__name__)
 
 
-def extract_text_docling(file_path: str, force_ocr: bool = False) -> str:
-    """
-    Extrait le texte d'un PDF.
-    - force_ocr=False (défaut) : utilise la couche texte native si disponible,
-      adapté aux documents utilisateurs normaux (contrats, jugements propres).
-    - force_ocr=True : force l'OCR complet, à réserver aux documents dont
-      l'encodage de police est connu pour être cassé (corpus juridique historique).
-    """
+def _extract_with_docling(
+    file_path: str,
+    force_ocr: bool,
+) -> str:
+
     ocr_options = TesseractCliOcrOptions(
         lang=["ara", "fra"],
         force_full_page_ocr=force_ocr,
@@ -26,14 +23,15 @@ def extract_text_docling(file_path: str, force_ocr: bool = False) -> str:
         do_table_structure=False,
         do_picture_classification=False,
     )
+
     converter = DocumentConverter(
-        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}
+        format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_options=options
+            )
+        }
     )
 
-    try:
-        result = converter.convert(file_path)
-    except Exception as exc:
-        logger.error(f"Docling extraction failed: {exc}")
-        raise
+    result = converter.convert(file_path)
 
     return result.document.export_to_text()
