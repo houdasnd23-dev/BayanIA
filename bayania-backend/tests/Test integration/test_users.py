@@ -1,3 +1,4 @@
+#expose la consultation et la mise à jour du profil de l'utilisateur connecté.
 import pytest
 from httpx import AsyncClient
 

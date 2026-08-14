@@ -1,14 +1,10 @@
-# --- Installation (une seule fois) ---
-# pip install pytest httpx pytest-asyncio
-#
-# --- Lancer les tests ---
-# pytest test_auth.py -v
+
 
 import pytest
 from httpx import AsyncClient, ASGITransport
 import pytest_asyncio
-# Adapte cet import au chemin réel de ton app FastAPI
-from app.main import app # ex: from app.main import app
+
+from app.main import app 
 
 
 @pytest_asyncio.fixture

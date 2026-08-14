@@ -113,7 +113,7 @@ async def main():
         for o in orphan_imports:
             print(f"  id={o['id_importation']} date={o['date_importation']} statut={o['statut_indexation']}")
     else:
-        print(" Aucun import orphelin.")
+        print("✅ Aucun import orphelin.")
 
     await conn.close()
 

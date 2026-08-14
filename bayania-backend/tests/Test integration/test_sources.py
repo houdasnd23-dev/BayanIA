@@ -5,7 +5,7 @@ from sqlalchemy.future import select
 
 from app.models.source_juridique import SourceJuridique
 from app.models.importation_document import ImportationDocument
-
+#: expose la recherche sémantique de sources juridiques via embedding + Qdrant.
 @pytest.mark.asyncio
 async def test_get_source_success(client: AsyncClient, db_session: AsyncSession):
     # 1. Register & Login user
