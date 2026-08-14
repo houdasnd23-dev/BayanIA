@@ -1,7 +1,7 @@
 from typing import List, Dict, Any
 import re
 
-from sqlalchemy import select, or_,func
+from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.source_juridique import SourceJuridique
@@ -11,33 +11,33 @@ from app.services.qdrant_service import QdrantService
 
 class SearchService:
     """
-    Recherche juridique hybride BayanIA.
+    Service de recherche juridique hybride BayanIA.
 
-    Dense:
-        Qdrant -> similarité sémantique
-
-    Lexical:
-        PostgreSQL -> correspondance exacte des termes
-
-    Les deux résultats sont ensuite fusionnés.
+    Pipeline :
+        1. Recherche exacte PostgreSQL
+        2. Recherche lexicale PostgreSQL
+        3. Recherche sémantique Qdrant
+        4. Fusion des résultats
+        5. Ranking
+        6. Déduplication par document
     """
 
-    DENSE_TOP_K = 20
-    LEXICAL_TOP_K = 30
+    DENSE_TOP_K = 30
+    LEXICAL_TOP_K = 50
+    EXACT_TOP_K = 30
     FINAL_TOP_K = 10
 
     # ==========================================================
-    # NORMALISATION POUR LE SCORING UNIQUEMENT
+    # NORMALISATION POUR LE SCORING
     # ==========================================================
 
     @staticmethod
     def normalize_for_score(text: str) -> str:
         """
-        Normalisation utilisée UNIQUEMENT pour comparer les textes.
+        Normalisation utilisée uniquement pour comparer les textes.
 
-        Attention :
-        ne pas utiliser cette fonction pour construire les requêtes SQL,
-        sinon certaines lettres arabes changent (ة -> ه, etc.).
+        On normalise certaines variantes arabes pour améliorer
+        la comparaison locale.
         """
 
         if not text:
@@ -45,12 +45,14 @@ class SearchService:
 
         text = text.lower()
 
+        # Suppression des diacritiques arabes
         text = re.sub(
             r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]",
             "",
             text,
         )
 
+        # Normalisation arabe
         text = text.replace("أ", "ا")
         text = text.replace("إ", "ا")
         text = text.replace("آ", "ا")
@@ -59,19 +61,22 @@ class SearchService:
         text = text.replace("ة", "ه")
         text = text.replace("ـ", "")
 
-        return re.sub(r"\s+", " ", text).strip()
+        # Espaces multiples
+        text = re.sub(r"\s+", " ", text)
+
+        return text.strip()
 
     # ==========================================================
-    # TEXTE POUR REQUETE SQL
+    # NORMALISATION POUR SQL
     # ==========================================================
 
     @staticmethod
     def normalize_for_sql(text: str) -> str:
         """
-        Normalisation légère pour PostgreSQL.
+        Normalisation légère pour construire les requêtes SQL.
 
         IMPORTANT :
-        on ne modifie PAS les lettres arabes.
+        On ne modifie pas les lettres arabes.
         """
 
         if not text:
@@ -93,8 +98,6 @@ class SearchService:
         - expressions de 3 mots
         - expressions de 2 mots
         - mots individuels
-
-        Les termes retournés conservent leur forme pour SQL.
         """
 
         text = cls.normalize_for_sql(query)
@@ -108,7 +111,9 @@ class SearchService:
         )
 
         stopwords = {
+            # =========================
             # Arabe
+            # =========================
             "ما",
             "ماذا",
             "ماهو",
@@ -119,12 +124,15 @@ class SearchService:
             "لماذا",
             "متى",
             "اين",
+            "أين",
             "في",
             "عن",
             "على",
             "الى",
+            "إلى",
             "و",
             "او",
+            "أو",
             "مع",
             "هو",
             "هي",
@@ -138,8 +146,12 @@ class SearchService:
             "حول",
             "بشأن",
             "بخصوص",
+            "ماهي",
+            "ماهى",
 
+            # =========================
             # Français
+            # =========================
             "quel",
             "quelle",
             "quels",
@@ -167,6 +179,8 @@ class SearchService:
             "au",
             "aux",
             "par",
+            "est",
+            "sont",
         }
 
         tokens = [
@@ -175,15 +189,16 @@ class SearchService:
             if len(token) >= 3 and token not in stopwords
         ]
 
+        if not tokens:
+            return []
+
         terms: List[str] = []
 
         # Expressions composées
         for n in (4, 3, 2):
             for i in range(len(tokens) - n + 1):
 
-                phrase = " ".join(
-                    tokens[i:i + n]
-                )
+                phrase = " ".join(tokens[i:i + n])
 
                 if len(phrase) >= 6 and phrase not in terms:
                     terms.append(phrase)
@@ -193,22 +208,37 @@ class SearchService:
             if token not in terms:
                 terms.append(token)
 
-        return terms[:20]
+        return terms[:25]
+
+    # ==========================================================
+    # RECHERCHE EXACTE
+    # ==========================================================
+
     @classmethod
     async def exact_search(
         cls,
         db: AsyncSession,
         query: str,
     ) -> List[Dict[str, Any]]:
+        """
+        Recherche exacte de l'expression complète.
+
+        Cette recherche est prioritaire pour les requêtes juridiques
+        courtes et précises comme :
+            "مجلس المنافسة"
+            "التركيز الاقتصادي"
+            "مدونة الشغل"
+        """
 
         query = cls.normalize_for_sql(query)
 
         if not query:
             return []
 
-        # Recherche exacte de l'expression complète.
-        # On normalise les espaces dans PostgreSQL pour gérer
-        # les espaces normaux, insécables ou multiples provenant de l'OCR.
+        # Expressions SQL insensibles aux majuscules/minuscules.
+        #
+        # regexp_replace permet de normaliser les espaces provenant
+        # notamment de l'OCR.
         normalized_content = func.regexp_replace(
             SourceJuridique.contenu_texte,
             r"[[:space:]]+",
@@ -242,25 +272,32 @@ class SearchService:
                     normalized_article.ilike(pattern),
                 ),
             )
-            .limit(20)
+            .limit(cls.EXACT_TOP_K)
         )
 
         result = await db.execute(stmt)
+
         sources = result.scalars().all()
 
-        return [
-            {
-                "id_source": source.id_source,
-                "titre_document": source.titre_document,
-                "numero_article": source.numero_article,
-                "contenu_texte": source.contenu_texte,
-                "type_source": source.type_source,
-                "score": 1.0,
-                "exact_phrase": True,
-                "retrieval_type": "exact",
-            }
-            for source in sources
-        ]
+        results: List[Dict[str, Any]] = []
+
+        for source in sources:
+
+            results.append(
+                {
+                    "id_source": source.id_source,
+                    "titre_document": source.titre_document,
+                    "numero_article": source.numero_article,
+                    "contenu_texte": source.contenu_texte,
+                    "type_source": source.type_source,
+                    "score": 1.0,
+                    "exact_phrase": True,
+                    "retrieval_type": "exact",
+                }
+            )
+
+        return results
+
     # ==========================================================
     # RECHERCHE LEXICALE
     # ==========================================================
@@ -271,6 +308,9 @@ class SearchService:
         db: AsyncSession,
         query: str,
     ) -> List[Dict[str, Any]]:
+        """
+        Recherche PostgreSQL basée sur les termes importants.
+        """
 
         terms = cls.extract_terms(query)
 
@@ -279,9 +319,6 @@ class SearchService:
 
         conditions = []
 
-        # IMPORTANT :
-        # ici on utilise les termes BRUTS,
-        # pas normalize_for_score().
         for term in terms:
 
             pattern = f"%{term}%"
@@ -305,20 +342,16 @@ class SearchService:
 
         result = await db.execute(stmt)
 
-        sources = list(
-            result.scalars().all()
-        )
+        sources = result.scalars().all()
 
-        results = []
+        results: List[Dict[str, Any]] = []
 
-        # Expressions composées
         phrase_terms = [
             term
             for term in terms
             if " " in term
         ]
 
-        # Mots seuls
         single_terms = [
             term
             for term in terms
@@ -335,9 +368,9 @@ class SearchService:
             for term in single_terms
         ]
 
-        # ------------------------------------------------------
+        # ======================================================
         # Scoring
-        # ------------------------------------------------------
+        # ======================================================
 
         for source in sources:
 
@@ -345,17 +378,9 @@ class SearchService:
             content_raw = source.contenu_texte or ""
             article_raw = source.numero_article or ""
 
-            title = cls.normalize_for_score(
-                title_raw
-            )
-
-            content = cls.normalize_for_score(
-                content_raw
-            )
-
-            article = cls.normalize_for_score(
-                article_raw
-            )
+            title = cls.normalize_for_score(title_raw)
+            content = cls.normalize_for_score(content_raw)
+            article = cls.normalize_for_score(article_raw)
 
             score = 0.0
 
@@ -372,14 +397,17 @@ class SearchService:
                     continue
 
                 if phrase in title:
+
                     score += 30.0
                     exact_phrase_count += 1
 
-                elif phrase in content:
+                elif phrase in article:
+
                     score += 20.0
                     exact_phrase_count += 1
 
-                elif phrase in article:
+                elif phrase in content:
+
                     score += 15.0
                     exact_phrase_count += 1
 
@@ -395,15 +423,18 @@ class SearchService:
                 found = False
 
                 if term in title:
-                    score += 4.0
+
+                    score += 6.0
                     found = True
 
                 if term in article:
-                    score += 3.0
+
+                    score += 4.0
                     found = True
 
                 if term in content:
-                    score += 1.0
+
+                    score += 1.5
                     found = True
 
                 if found:
@@ -414,17 +445,17 @@ class SearchService:
             # --------------------------------------------------
 
             if matched_single_terms >= 2:
-                score += 10.0
+                score += 8.0
 
             if matched_single_terms >= 3:
-                score += 10.0
+                score += 8.0
 
             # --------------------------------------------------
-            # Bonus très fort si phrase exacte
+            # Bonus très fort pour phrase exacte
             # --------------------------------------------------
 
             if exact_phrase_count > 0:
-                score += 30.0
+                score += 25.0
 
             if score <= 0:
                 continue
@@ -444,8 +475,8 @@ class SearchService:
 
         results.sort(
             key=lambda item: (
-                item["exact_phrase"],
-                item["score"],
+                item.get("exact_phrase", False),
+                item.get("score", 0.0),
             ),
             reverse=True,
         )
@@ -461,10 +492,11 @@ class SearchService:
         cls,
         query: str,
     ) -> List[Dict[str, Any]]:
+        """
+        Recherche sémantique dans Qdrant.
+        """
 
-        vector = await EmbeddingService.get_embedding(
-            query
-        )
+        vector = await EmbeddingService.get_embedding(query)
 
         results = await QdrantService.search_similar(
             vector,
@@ -478,10 +510,6 @@ class SearchService:
     # RECHERCHE HYBRIDE
     # ==========================================================
 
-    # ==========================================================
-    # RECHERCHE HYBRIDE
-    # ==========================================================
-
     @classmethod
     async def hybrid_search(
         cls,
@@ -489,61 +517,46 @@ class SearchService:
         query: str,
         top_k: int = FINAL_TOP_K,
     ) -> List[Dict[str, Any]]:
+        """
+        Recherche hybride finale.
 
-        # ------------------------------------------------------
-        # 1. Recherche exacte PostgreSQL
-        # ------------------------------------------------------
+        Priorité :
+
+        1. Correspondance exacte + bonne similarité sémantique
+        2. Correspondance exacte
+        3. Lexical + dense
+        4. Sémantique seule
+        """
+
+        # ======================================================
+        # 1. Recherche exacte
+        # ======================================================
 
         exact_results = await cls.exact_search(
             db,
             query,
         )
 
-        # ------------------------------------------------------
+        # ======================================================
         # 2. Recherche lexicale
-        # ------------------------------------------------------
+        # ======================================================
 
         lexical_results = await cls.lexical_search(
             db,
             query,
         )
 
-        # ------------------------------------------------------
-        # 3. Recherche sémantique
-        # ------------------------------------------------------
+        # ======================================================
+        # 3. Recherche dense
+        # ======================================================
 
         dense_results = await cls.dense_search(
             query,
         )
 
-        final_results = []
-        used_ids = set()
-
-        # ------------------------------------------------------
-        # PRIORITE ABSOLUE AUX MATCHS EXACTS
-        # ------------------------------------------------------
-
-        for item in exact_results:
-
-            source_id = item.get("id_source")
-
-            if source_id is None:
-                continue
-
-            if source_id in used_ids:
-                continue
-
-            item["score"] = 1.0
-            item["search_type"] = "exact"
-
-            used_ids.add(source_id)
-            final_results.append(item)
-
-            if len(final_results) >= top_k:
-                return final_results[:top_k]
-        # ------------------------------------------------------
-        # 5. Résultats lexical + dense
-        # ------------------------------------------------------
+        # ======================================================
+        # Index Qdrant par id
+        # ======================================================
 
         dense_by_id = {
             item.get("id_source"): item
@@ -551,110 +564,200 @@ class SearchService:
             if item.get("id_source") is not None
         }
 
-        max_lexical = max(
-            (
-                float(item.get("score", 0.0))
-                for item in lexical_results
-            ),
-            default=1.0,
-        )
+        # ======================================================
+        # Index exact par id
+        # ======================================================
 
-        for item in non_exact_results:
+        exact_by_id = {
+            item.get("id_source"): item
+            for item in exact_results
+            if item.get("id_source") is not None
+        }
 
-            source_id = item.get("id_source")
+        # ======================================================
+        # Index lexical par id
+        # ======================================================
 
-            if source_id is None:
-                continue
+        lexical_by_id = {
+            item.get("id_source"): item
+            for item in lexical_results
+            if item.get("id_source") is not None
+        }
 
-            if source_id in used_ids:
-                continue
+        # ======================================================
+        # Fusion
+        # ======================================================
 
+        all_ids = set()
+
+        all_ids.update(exact_by_id.keys())
+        all_ids.update(lexical_by_id.keys())
+        all_ids.update(dense_by_id.keys())
+
+        ranked_results: List[Dict[str, Any]] = []
+
+        for source_id in all_ids:
+
+            exact_item = exact_by_id.get(source_id)
+            lexical_item = lexical_by_id.get(source_id)
             dense_item = dense_by_id.get(source_id)
 
-            lexical_score = float(
-                item.get("score", 0.0)
+            # --------------------------------------------------
+            # Base item
+            # --------------------------------------------------
+
+            base_item = (
+                exact_item
+                or lexical_item
+                or dense_item
             )
 
-            lexical_normalized = (
-                lexical_score / max_lexical
-                if max_lexical > 0
-                else 0.0
-            )
+            if not base_item:
+                continue
+
+            item = dict(base_item)
+
+            # --------------------------------------------------
+            # Scores
+            # --------------------------------------------------
 
             dense_score = 0.0
 
             if dense_item:
+
                 dense_score = float(
                     dense_item.get("score", 0.0)
                 )
 
-            score = (
-                0.65 * lexical_normalized
-                + 0.35 * dense_score
+            lexical_score = 0.0
+
+            if lexical_item:
+
+                lexical_score = float(
+                    lexical_item.get("score", 0.0)
+                )
+
+            # Normalisation lexicale
+            lexical_normalized = min(
+                lexical_score / 100.0,
+                1.0,
             )
 
-            item["score"] = min(score, 0.99)
+            # --------------------------------------------------
+            # 1. EXACT MATCH
+            # --------------------------------------------------
 
-            if dense_item:
+            if exact_item:
+
+                # Le match exact est très important,
+                # mais Qdrant départage les documents.
+                final_score = (
+                    0.70
+                    + (0.30 * dense_score)
+                )
+
+                item["search_type"] = "exact_hybrid"
+
+            # --------------------------------------------------
+            # 2. LEXICAL + DENSE
+            # --------------------------------------------------
+
+            elif lexical_item and dense_item:
+
+                final_score = (
+                    0.60 * dense_score
+                    + 0.40 * lexical_normalized
+                )
+
                 item["search_type"] = "hybrid"
-            else:
+
+            # --------------------------------------------------
+            # 3. LEXICAL SEUL
+            # --------------------------------------------------
+
+            elif lexical_item:
+
+                final_score = (
+                    0.55 * lexical_normalized
+                )
+
                 item["search_type"] = "lexical"
 
-            used_ids.add(source_id)
+            # --------------------------------------------------
+            # 4. DENSE SEUL
+            # --------------------------------------------------
 
-            final_results.append(item)
+            else:
 
-        # ------------------------------------------------------
-        # 6. Résultats uniquement sémantiques
-        # ------------------------------------------------------
+                final_score = (
+                    0.45 * dense_score
+                )
 
-        for item in dense_results:
+                item["search_type"] = "semantic"
 
-            source_id = item.get("id_source")
-
-            if source_id is None:
-                continue
-
-            if source_id in used_ids:
-                continue
-
-            item["score"] = float(
-                item.get("score", 0.0)
+            item["score"] = min(
+                max(final_score, 0.0),
+                1.0,
             )
 
-            item["search_type"] = "semantic"
+            ranked_results.append(item)
 
-            used_ids.add(source_id)
+        # ======================================================
+        # Tri
+        # ======================================================
 
-            final_results.append(item)
+        ranked_results.sort(
+            key=lambda item: item.get(
+                "score",
+                0.0,
+            ),
+            reverse=True,
+        )
 
-        # ------------------------------------------------------
-        # 7. Résultats finaux
-        # ------------------------------------------------------
+        # ======================================================
+        # Déduplication par titre de document
+        # ======================================================
 
-        return final_results[:top_k]
-             # ------------------------------------------------------
-        # 7. Déduplication par document
-        # ------------------------------------------------------
+        unique_results: List[Dict[str, Any]] = []
 
-        unique_documents = []
-        seen_documents = set()
+        seen_titles = set()
 
-        for item in final_results:
+        for item in ranked_results:
 
-            title = item.get("titre_document")
+            title = (
+                item.get("titre_document")
+                or f"source_{item.get('id_source')}"
+            )
 
-            if not title:
-                title = f"source_{item.get('id_source')}"
-
-            # Un seul résultat principal par document
-            if title in seen_documents:
+            if title in seen_titles:
                 continue
 
-            seen_documents.add(title)
-            unique_documents.append(item)
+            seen_titles.add(title)
 
-            if len(unique_documents) >= top_k:
+            unique_results.append(item)
+
+            if len(unique_results) >= top_k:
                 break
 
-        return unique_documents
+        return unique_results
+
+    # ==========================================================
+    # ALIAS EVENTUEL
+    # ==========================================================
+
+    @classmethod
+    async def search(
+        cls,
+        db: AsyncSession,
+        query: str,
+        top_k: int = FINAL_TOP_K,
+    ) -> List[Dict[str, Any]]:
+        """
+        Alias pratique pour utiliser SearchService.search(...)
+        """
+
+        return await cls.hybrid_search(
+            db=db,
+            query=query,
+            top_k=top_k,
+        )
