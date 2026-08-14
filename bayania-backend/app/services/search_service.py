@@ -134,60 +134,128 @@ class SearchService:
             cls.normalize(term) for term in terms
         ]
 
-        for source in sources:
+    for source in sources:
+ 
+     title = cls.normalize(
+        source.titre_document or ""
+    )
 
-            title = cls.normalize(
-                source.titre_document or ""
-            )
-            content = cls.normalize(
-                source.contenu_texte or ""
-            )
-            article = cls.normalize(
-                source.numero_article or ""
-            )
+     content = cls.normalize(
+        source.contenu_texte or ""
+    )
 
-            score = 0.0
+     article = cls.normalize(
+        source.numero_article or ""
+    )
 
-            matched_terms = 0
+     score = 0.0
 
-            for term in normalized_terms:
+     matched_terms = 0
 
-                if term in title:
-                    score += 5.0
-                    matched_terms += 1
+    # ------------------------------------------------------
+    # 1. Expressions exactes de la requête
+    # ------------------------------------------------------
 
-                if term in article:
-                    score += 4.0
-                    matched_terms += 1
+    # Les termes de longueur >= 2 mots
+     phrase_terms = [
+        cls.normalize(term)
+        for term in terms
+        if " " in term
+     ]
 
-                if term in content:
-                    score += 2.0
-                    matched_terms += 1
+     for phrase in phrase_terms:
 
-            if matched_terms >= 2:
-                score += 3.0
+        if not phrase:
+            continue
 
-            if matched_terms >= 3:
-                score += 3.0
+        # Phrase exacte dans le titre
+        if phrase in title:
+            score += 20.0
 
-            if score <= 0:
-                continue
+        # Phrase exacte dans le contenu
+        if phrase in content:
+            score += 12.0
 
-            results.append({
-                "id_source": source.id_source,
-                "titre_document": source.titre_document,
-                "numero_article": source.numero_article,
-                "contenu_texte": source.contenu_texte,
-                "type_source": source.type_source,
-                "score": score,
-            })
+        # Phrase exacte dans l'article
+        if phrase in article:
+            score += 10.0
 
-        results.sort(
+    # ------------------------------------------------------
+    # 2. Vérifier les mots importants individuellement
+    # ------------------------------------------------------
+
+     single_terms = [
+        cls.normalize(term)
+        for term in terms
+        if " " not in term
+    ]
+
+     for term in single_terms:
+
+        if not term:
+            continue
+
+        found = False
+
+        if term in title:
+            score += 4.0
+            found = True
+
+        if term in article:
+            score += 3.0
+            found = True
+
+        if term in content:
+            score += 1.0
+            found = True
+
+        if found:
+            matched_terms += 1
+
+    # ------------------------------------------------------
+    # 3. Bonus si plusieurs termes importants sont présents
+    # ------------------------------------------------------
+
+     if matched_terms >= 2:
+        score += 8.0
+
+     if matched_terms >= 3:
+        score += 8.0
+
+    # ------------------------------------------------------
+    # 4. Bonus si une expression exacte est présente
+    # ------------------------------------------------------
+
+     exact_phrase_found = any(
+        phrase in title or phrase in content
+        for phrase in phrase_terms
+    )
+
+     if exact_phrase_found:
+        score += 15.0
+
+    # ------------------------------------------------------
+    # 5. Ignorer les résultats trop faibles
+    # ------------------------------------------------------
+
+     if score < 5.0:
+        continue
+
+     results.append({
+        "id_source": source.id_source,
+        "titre_document": source.titre_document,
+        "numero_article": source.numero_article,
+        "contenu_texte": source.contenu_texte,
+        "type_source": source.type_source,
+        "score": score,
+        "retrieval_type": "lexical",
+    })
+    results.sort(
             key=lambda x: x["score"],
             reverse=True,
         )
 
-        return results[:cls.LEXICAL_TOP_K]
+    return results[:cls.LEXICAL_TOP_K]
 
     @classmethod
     async def dense_search(
