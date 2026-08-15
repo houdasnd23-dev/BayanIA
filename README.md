@@ -164,8 +164,6 @@ seul l'exactitude juridique.
 - optimisation des performances et des coûts ;
 - amélioration de la couverture des tests (charge, end-to-end, PostgreSQL réel).
 
-> La recherche hybride lexicale + sémantique est **déjà implémentée** dans la
-> version actuelle et n'est donc pas listée comme fonctionnalité future.
 
 ## Stage
 
