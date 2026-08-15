@@ -57,7 +57,7 @@ Une fois démarré, la documentation interactive Swagger UI est accessible sur :
 - `POST /questions` : Poser une question juridique (requiert d'être authentifié).
   - Détecte et anonymise automatiquement les données sensibles (emails, CIN, téléphones, adresses, noms) dans le texte de la question.
   - Enregistre le mapping dans la table `Donnee_Sensible`.
-  - Lance la recherche vectorielle (top-k) dans Qdrant.
+  - Lance une recherche hybride : recherche dense dans Qdrant (jusqu'à 20 candidats) et recherche lexicale dans PostgreSQL (jusqu'à 30 candidats), fusionnées par Reciprocal Rank Fusion (RRF, k=60). Les 6 meilleurs passages sont conservés.
   - Génère la réponse via le LLM avec le contexte.
   - Sauvegarde la réponse générée, le score de confiance et lie les sources utilisées.
 - `GET /questions/{id}/reponse` : Récupère la réponse de l'IA liée à une question et affiche les sources juridiques citées.
@@ -86,4 +86,4 @@ pytest
 Les modules testés sont :
 1. **L'authentification** (Inscription, connexion, restrictions de rôles et JWT).
 2. **L'anonymisation** (Détection par regex/patterns et restauration du texte original).
-3. **Le RAG Pipeline** (Le processus d'ingestion de documents et de requêtage vectoriel).
+3. **Le RAG Pipeline** (ingestion des documents, requêtage hybride dense + lexical, fusion RRF).

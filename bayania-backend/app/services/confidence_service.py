@@ -13,15 +13,15 @@ class ConfidenceService:
     """
     Score de confiance basé sur 3 signaux indépendants :
 
-    1. Retrieval  (40%) — qualité des documents retrouvés par Qdrant
-                          (meilleur résultat + moyenne, pas juste la moyenne)
-    2. Citation   (20%) — l'article est-il explicitement cité dans la réponse ?
-                          (regex à limites de mots, pas un simple "in")
+    1. Retrieval    (40%) — qualité des documents retrouvés par Qdrant
+                            (meilleur résultat + moyenne, pas juste la moyenne)
+    2. Citation     (20%) — l'article est-il explicitement cité dans la réponse ?
+                            (regex à limites de mots, pas un simple "in")
     3. Groundedness (40%) — chaque phrase de la réponse est-elle sémantiquement
-                          proche d'au moins un des chunks de contexte fournis ?
-                          C'est le signal le plus important contre l'hallucination :
-                          un article correctement cité mais dont l'explication
-                          invente des détails absents du contexte sera détecté ici.
+                            proche d'au moins un des chunks de contexte fournis ?
+                            C'est le signal le plus important contre l'hallucination :
+                            un article correctement cité mais dont l'explication
+                            invente des détails absents du contexte sera détecté ici.
     """
 
     INSUFFICIENT_MARKERS = [
@@ -87,16 +87,57 @@ class ConfidenceService:
         return 0.5 * top1_similarity + 0.5 * avg_similarity
 
     @staticmethod
+    def _normalize_article(article: str) -> str:
+        """
+        Normalise une référence d'article pour la comparaison regex.
+
+        Retire les préfixes courants ("Article ", "Art. ", "Art ")
+        pour éviter de les dupliquer dans le pattern de recherche.
+
+        Exemples :
+            "Article 9"       -> "9"
+            "article 9"       -> "9"
+            "Art. 9"          -> "9"
+            "art 9"           -> "9"
+            "Article premier" -> "premier"
+        """
+        article = str(article).strip().lower()
+
+        prefixes = ("article ", "art. ", "art ")
+
+        for prefix in prefixes:
+            if article.startswith(prefix):
+                article = article[len(prefix):].strip()
+                break
+
+        return article
+
+    @staticmethod
     def _citation_score(
         response_lower: str,
         retrieved_sources: List[Dict[str, Any]],
     ) -> float:
+        if not retrieved_sources:
+            return 0.0
+
+        response_lower = str(response_lower).lower()
+
         citations_found = 0
+
         for source in retrieved_sources:
-            article = str(source.get("numero_article", "")).strip()
+
+            article_raw = source.get("numero_article", "")
+
+            if not article_raw:
+                continue
+
+            article = ConfidenceService._normalize_article(str(article_raw))
+
             if not article:
                 continue
+
             pattern = rf"\barticle\s+{re.escape(article)}\b"
+
             if re.search(pattern, response_lower):
                 citations_found += 1
 

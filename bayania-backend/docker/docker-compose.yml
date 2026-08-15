@@ -46,13 +46,10 @@ services:
       - JWT_ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=60
       - QDRANT_URL=http://qdrant:6333
-      - LLM_PROVIDER=gemini
-      - LLM_API_KEY=${GEMINI_API_KEY}
-      - LLM_API_URL=https://generativelanguage.googleapis.com/v1beta
-      - LLM_MODEL=gemini-3.5-flash
-      - RAG_TOP_K=4
-      - RAG_MIN_SCORE=0.5
+      - RAG_MIN_SCORE=0.35
       - UPLOAD_DIR=/workspace/uploads
+      # GEMINI_API_KEY et GEMINI_GENERATION_API_KEY sont chargées depuis .env
+      # via env_file ci-dessous (ne pas les dupliquer ici).
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,4 +66,3 @@ volumes:
   qdrant_data:
   uploads_data:
   huggingface_cache:
-  
