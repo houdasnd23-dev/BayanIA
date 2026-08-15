@@ -610,16 +610,24 @@ class RAGService:
                 result.scalars().all()
             )
 
-        # ------------------------------------------------------
+       # ------------------------------------------------------
         # 7. Confidence
         # ------------------------------------------------------
 
         confidence = (
             await ConfidenceService.calculate_score(
-                response_text=response_text,
+                response_text,
                 retrieved_sources=rag_hits,
             )
         )
+
+        print("\n========== DEBUG CONFIDENCE ==========")
+        print("retrieval     =", confidence["retrieval"])
+        print("citation      =", confidence["citation"])
+        print("groundedness  =", confidence["groundedness"])
+        print("abstained     =", confidence["abstained"])
+        print("confidence    =", confidence["confidence"])
+        print("=======================================\n")
 
         return (
             response_text,

@@ -105,11 +105,18 @@ async def test_rag_query_flow(
         anonymized_question=question_text
     )
     
+    print("\n========== DEBUG RAG ==========")
+    print("response_text =", response_text)
+    print("cited_sources =", cited_sources)
+    print("confidence =", confidence)
+    print("================================")
+
     assert "monarchie constitutionnelle" in response_text
     assert len(cited_sources) == 1
     assert cited_sources[0].id_source == source.id_source
-    assert confidence > 0.8  # Expect high confidence
-    
+
+    assert confidence > 0.8
+
     assert mock_embed.called
     assert mock_search.called
     assert mock_llm.called

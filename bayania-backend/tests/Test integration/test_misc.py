@@ -2,6 +2,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from unittest.mock import patch
+
 pytestmark = pytest.mark.integration
 
 
@@ -52,53 +53,71 @@ async def test_list_questions_returns_only_own_questions(client: AsyncClient, db
 
 from unittest.mock import patch
 
-@pytest.mark.asyncio
-@patch("app.services.search_service.QdrantService.search_similar")
-@patch("app.services.search_service.EmbeddingService.get_embedding")
-async def test_search_sources_success(mock_embed, mock_search, client: AsyncClient, db_session: AsyncSession):
-    from app.models.source_juridique import SourceJuridique
-    from app.models.importation_document import ImportationDocument
 
-    mock_embed.return_value = [0.1] * 768
+
+@pytest.mark.asyncio
+@patch("app.routers.sources.SearchService.hybrid_search")
+async def test_search_sources_success(
+    mock_search,
+    client: AsyncClient
+):
     mock_search.return_value = [{
         "id_source": 1,
         "titre_document": "Loi sur la protection des données",
-        "contenu_texte": "Contenu relatif à la protection des données personnelles.",
+        "contenu_texte": (
+            "Protection des données personnelles"
+        ),
         "numero_article": "Article 1",
         "score": 0.95,
-    }]  # ⚠️ adapte les champs à ton schema SourceSearchResult
+    }]
 
-    await client.post("/auth/register", json={
-        "email": "search.test@example.com", "mot_de_passe": "pass123",
-        "nom_user": "Search Test", "type_profil": "normal",
-    })
-    login = await client.post("/auth/login", json={"email": "search.test@example.com", "mot_de_passe": "pass123"})
+    register_res = await client.post(
+        "/auth/register",
+        json={
+            "email": "search.test@example.com",
+            "mot_de_passe": "pass123",
+            "nom_user": "Search Test",
+            "type_profil": "normal",
+        },
+    )
+
+    assert register_res.status_code == 201
+
+    login = await client.post(
+        "/auth/login",
+        json={
+            "email": "search.test@example.com",
+            "mot_de_passe": "pass123",
+        },
+    )
+
+    assert login.status_code == 200
+
     token = login.json()["access_token"]
 
-    importation = ImportationDocument(statut_indexation="COMPLETED")
-    db_session.add(importation)
-    await db_session.commit()
-
-    source = SourceJuridique(
-        type_source="Loi", titre_document="Loi sur la protection des données",
-        contenu_texte="Contenu relatif à la protection des données personnelles.",
-        numero_article="Article 1", statut_validite=True,
-        id_importation=importation.id_importation,
+    response = await client.get(
+        "/sources/search",
+        params={"q": "protection"},
+        headers={
+            "Authorization": f"Bearer {token}"
+        },
     )
-    db_session.add(source)
-    await db_session.commit()
 
-    response = await client.get("/sources/search", params={"q": "protection"}, headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
-    results = response.json()
-    assert len(results) >= 1
 
+    results = response.json()
+
+    assert len(results) == 1
+    assert results[0]["titre_document"] == (
+        "Loi sur la protection des données"
+    )
+
+    mock_search.assert_called_once()
 
 @pytest.mark.asyncio
-@patch("app.services.search_service.QdrantService.search_similar")
-@patch("app.services.search_service.EmbeddingService.get_embedding")
-async def test_search_sources_no_results(mock_embed, mock_search, client: AsyncClient):
-    mock_embed.return_value = [0.1] * 768
+
+@patch("app.routers.sources.SearchService.hybrid_search")
+async def test_search_sources_no_results(mock_search, client: AsyncClient):
     mock_search.return_value = []
 
     await client.post("/auth/register", json={
