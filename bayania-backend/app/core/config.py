@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "gemini"
     GEMINI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
-    LLM_MODEL: str = "gemini-3.5-flash-lite"                 
+    LLM_MODEL: str = "gemini-3.6-flash"                 
     GEMINI_GENERATION_API_KEY: str = ""   
 
 
