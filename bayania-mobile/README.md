@@ -1,56 +1,142 @@
-# Welcome to your Expo app 👋
+# BayanIA Mobile 🇲🇦⚖️
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Application mobile de **BayanIA**, l'assistant juridique intelligent dédié au droit
+marocain. Développée avec **React Native** et **Expo**, elle consomme la même API
+backend FastAPI que l'application web et propose une expérience équivalente
+(conversation juridique, historique, analyse de documents, administration).
 
-## Get started
+---
 
-1. Install dependencies
+## 🛠️ Stack technique
 
+- **Framework :** React Native + Expo (SDK 57)
+- **Routage :** Expo Router (routage par fichiers, identique en esprit à Next.js)
+- **Langage :** TypeScript
+- **Style :** NativeWind (Tailwind pour React Native)
+- **Stockage local :** `@react-native-async-storage/async-storage` (token JWT, préférences)
+- **Icônes :** `@expo/vector-icons`
+
+---
+
+## 📁 Structure du projet
+
+```
+bayania-mobile/
+├── app/                          # Routes Expo Router (file-based routing)
+│   ├── index.tsx                 # Écran d'accueil
+│   ├── layout.tsx                 # Layout racine (providers globaux)
+│   ├── connexion/
+│   │   └── index.tsx              # Authentification
+│   ├── inscription/
+│   │   └── index.tsx              # Création de compte
+│   ├── dashboard/
+│   │   ├── index.tsx              # Conversation juridique (chat RAG)
+│   │   └── layout.tsx             # Layout de la zone utilisateur connecté
+│   ├── search/
+│   │   └── index.tsx              # Recherche de sources juridiques
+│   ├── history/
+│   │   └── index.tsx              # Historique des questions
+│   ├── analyse/
+│   │   └── index.tsx              # Analyse de documents (vue liste)
+│   ├── analyse-pdf/
+│   │   └── index.tsx              # Analyse d'un PDF (upload + résultat)
+│   ├── admin/
+│   │   ├── index.tsx              # Interface d'administration
+│   │   └── layout.tsx             # Layout de la zone admin
+│   └── compte/
+│       └── index.tsx              # Profil utilisateur
+├── components/
+│   ├── HeroConversation.tsx       # Composant d'accueil (aperçu du chat)
+│   ├── HomePreviewSlider.tsx      # Carrousel de la page d'accueil
+│   ├── auth/
+│   │   └── registerhero.tsx
+│   └── layout/
+│       ├── Navbar.tsx
+│       ├── Footer.tsx
+│       └── theme.ts               # Constantes de couleurs/typo utilisées par les écrans
+├── src/
+│   └── lib/
+│       ├── api.ts                 # Client HTTP de base (token, gestion des erreurs)
+│       └── api/                   # Un module par domaine métier
+│           ├── auth.ts
+│           ├── questions.ts
+│           ├── sources.ts
+│           ├── document.ts
+│           ├── admin.ts
+│           └── users.ts
+├── assets/
+│   ├── images/
+│   ├── features/
+│   └── screenshots/
+├── scripts/
+│   └── reset-project.js
+├── theme.js                       # Config NativeWind/Tailwind (palette navy/gold, tokens partagés avec le web)
+├── app.json                       # Configuration Expo
+├── eas.json                       # Configuration EAS Build
+└── babel.config.js
+```
+
+> ℹ️ Deux fichiers de thème coexistent : `theme.js` (racine) configure NativeWind
+> côté build, tandis que `components/layout/theme.ts` exporte les constantes
+> (`colors`, `fonts`) réellement importées dans les écrans — pense à modifier
+> les deux si tu changes la palette.
+
+---
+
+## ⚙️ Variables d'environnement
+
+L'application lit l'URL du backend via une variable d'environnement publique Expo :
+
+```
+EXPO_PUBLIC_API_URL=http://localhost:8000
+```
+
+Créer un fichier `.env` à la racine de `bayania-mobile/` avec cette variable,
+pointée vers votre backend local (`http://localhost:8000`) ou vers l'instance
+déployée sur Railway en production.
+
+> ⚠️ Sur un émulateur Android, `localhost` doit généralement être remplacé par
+> `10.0.2.2`. Sur un appareil physique connecté au même réseau local, utiliser
+> l'adresse IP locale de la machine hébergeant le backend (ex. `192.168.1.15`).
+
+---
+
+## 🚀 Lancement local
+
+1. Installer les dépendances :
    ```bash
    npm install
    ```
-
-2. Start the app
-
+2. S'assurer que le backend BayanIA tourne (voir `bayania-backend/README.md`)
+   et que `EXPO_PUBLIC_API_URL` pointe vers celui-ci.
+3. Démarrer le serveur de développement Expo :
    ```bash
    npx expo start
    ```
+4. Ouvrir l'application via :
+   - **Expo Go** (scan du QR code) pour un test rapide sur un appareil physique ;
+   - un **émulateur Android** ou un **simulateur iOS** ;
+   - un **development build** pour tester les modules natifs non disponibles dans Expo Go.
 
-In the output, you'll find options to open the app in a
+---
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## 🎨 Thème
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+La palette de couleurs (navy / gold) est définie en amont sur Figma et déclinée
+sur mobile en deux endroits :
 
-## Get a fresh project
+- `theme.js` (racine) : configuration NativeWind/Tailwind pour le build ;
+- `components/layout/theme.ts` : constantes `colors`/`fonts` réellement
+  importées dans les écrans (`app/**`).
 
-When you're ready, run:
+Toute modification de palette doit être répercutée dans ces deux fichiers pour
+rester cohérente avec la version web (`bayania-frontend`).
 
-```bash
-npm run reset-project
-```
+---
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## 🔗 Backend
 
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Cette application ne fonctionne pas de manière autonome : elle nécessite l'API
+BayanIA (`bayania-backend/`) démarrée et accessible à l'URL renseignée dans
+`EXPO_PUBLIC_API_URL`. Voir la documentation technique du dépôt
+(`DOCUMENTATION_TECHNIQUE.md`) pour l'architecture globale et les endpoints exposés.
