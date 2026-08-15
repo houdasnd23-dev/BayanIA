@@ -2,441 +2,175 @@
 
 ### Assistant juridique intelligent basé sur l'IA pour le droit marocain
 
-BayanIA est une plateforme LegalTech conçue pour faciliter l'accès au corpus juridique marocain grâce à l'intelligence artificielle.
+BayanIA est une plateforme LegalTech développée dans le cadre d'un stage à
+**IAAI Academy**. Elle permet de poser des questions juridiques en langage naturel
+et de générer des réponses contextualisées à partir d'un corpus juridique marocain
+indexé, avec références et score de confiance.
 
-La plateforme permet à l'utilisateur de poser des questions juridiques en langage naturel et d'obtenir une réponse contextualisée à partir d'un corpus juridique marocain, accompagnée des références utilisées.
+Le projet met l'accent sur la recherche documentaire, la traçabilité des sources
+et la protection des données personnelles.
 
-Le projet met particulièrement l'accent sur la **fiabilité des réponses, la traçabilité des sources et la protection des données personnelles**.
+## Dépôt
 
----
+https://github.com/houdasnd23-dev/BayanIA
 
-## 🎯 Objectifs
+## Structure
 
-BayanIA a été développé avec plusieurs objectifs :
-
-* Faciliter l'accès au droit marocain.
-* Permettre la recherche juridique en langage naturel.
-* Exploiter un corpus juridique à travers la recherche sémantique.
-* Générer des réponses contextualisées grâce à une architecture RAG.
-* Fournir les références juridiques utilisées dans les réponses.
-* Protéger les données personnelles des utilisateurs.
-* Mettre en place une architecture sécurisée et évolutive.
-
----
-
-## 🏗️ Architecture
-
-BayanIA repose sur une architecture client-serveur composée de plusieurs services :
-
-```text
-                    ┌──────────────────────┐
-                    │      Utilisateur      │
-                    └──────────┬───────────┘
-                               │
-                               ▼
-                    ┌──────────────────────┐
-                    │   Next.js / React    │
-                    │      Frontend        │
-                    └──────────┬───────────┘
-                               │ REST API
-                               ▼
-                    ┌──────────────────────┐
-                    │       FastAPI        │
-                    │       Backend        │
-                    └──────────┬───────────┘
-                               │
-             ┌─────────────────┼──────────────────┐
-             │                 │                  │
-             ▼                 ▼                  ▼
-      ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-      │ PostgreSQL  │   │   Qdrant    │   │  Gemini API │
-      │ Données     │   │ Recherche   │   │     LLM     │
-      │ structurées │   │ vectorielle │   │             │
-      └─────────────┘   └─────────────┘   └─────────────┘
+```
+BayanIA/
+├── bayania-backend/   # FastAPI, PostgreSQL, Qdrant, RAG, sécurité, tests
+├── bayania-frontend/  # Next.js / React
+└── bayania-mobile/    # React Native / Expo
 ```
 
----
+## Architecture
 
-## 🧠 Pipeline RAG
-
-Le cœur de BayanIA repose sur une architecture **Retrieval-Augmented Generation (RAG)**.
-
-Lorsqu'un utilisateur pose une question, le traitement suit plusieurs étapes :
-
-```text
-Question utilisateur
-        │
-        ▼
-┌─────────────────┐
-│  Anonymisation  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│    Embedding    │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Recherche dans  │
-│     Qdrant      │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Passages        │
-│ juridiques      │
-│ pertinents      │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Construction    │
-│ du contexte     │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   Gemini LLM    │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Réponse +       │
-│ références +    │
-│ score confiance │
-└─────────────────┘
+```
+Web Next.js / Mobile Expo
+            |
+            v
+         FastAPI
+        /   |    \
+       v    v     v
+PostgreSQL Qdrant Gemini
+            ^
+            |
+       Pipeline RAG
 ```
 
-Cette approche permet de limiter la génération de réponses non fondées sur le corpus juridique disponible.
+## RAG hybride
 
----
+La version actuelle utilise deux mécanismes complémentaires de récupération :
 
-## 🔐 Sécurité
+1. recherche dense dans Qdrant à partir des embeddings Gemini ;
+2. recherche lexicale dans PostgreSQL sur le titre, le contenu et le numéro d'article.
 
-La sécurité constitue un élément central de BayanIA.
+Les résultats sont fusionnés par **Reciprocal Rank Fusion (RRF)**. Le système
+récupère jusqu'à 20 candidats denses et 30 candidats lexicaux, puis conserve au
+maximum 6 passages pour construire le contexte transmis à Gemini.
 
-Les principaux mécanismes implémentés comprennent :
+## IA
 
-* 🔑 Authentification basée sur **JWT**.
-* 👥 Gestion des rôles et des autorisations.
-* 🔒 Hachage sécurisé des mots de passe avec **bcrypt**.
-* 🛡️ Anonymisation des données personnelles avant l'appel au LLM.
-* 🚦 Rate limiting afin de limiter les abus.
-* 🔐 Gestion des secrets via variables d'environnement.
-* 🗄️ Sécurisation de l'accès à PostgreSQL.
-* 🧩 Séparation entre données relationnelles et données vectorielles.
-* 📋 Journalisation et contrôle des opérations sensibles.
+- Embeddings : `gemini-embedding-001` — 768 dimensions ;
+- LLM principal : `gemini-3.6-flash` ;
+- modèles de secours : `gemini-3.5-flash`, puis `gemini-3.0-flash` ;
+- réponses contraintes au contexte juridique récupéré ;
+- fallback en mode test lorsque Gemini n'est pas disponible.
 
-### Anonymisation
+## Sécurité
 
-Avant qu'une question contenant potentiellement des informations personnelles soit transmise au modèle de langage, elle passe par le module d'anonymisation.
+- JWT pour l'authentification ;
+- gestion des rôles ;
+- bcrypt pour les mots de passe ;
+- validation Pydantic ;
+- rate limiting ;
+- anonymisation des informations personnelles avant le LLM (par expressions
+  régulières) ;
+- secrets via variables d'environnement ;
+- contrôle des accès aux routes sensibles.
 
-Exemple :
+## Installation locale
 
-```text
-Question originale
-        ↓
-"Je suis [nom], mon email est [email]..."
-        ↓
-Question anonymisée
-        ↓
-Traitement RAG
-        ↓
-LLM
-```
-
-L'objectif est de réduire l'exposition de données personnelles auprès des services externes.
-
----
-
-## 🗂️ Corpus juridique
-
-Le corpus juridique constitue la base documentaire de BayanIA.
-
-Le processus d'intégration des documents suit généralement les étapes suivantes :
-
-```text
-Documents juridiques
-        ↓
-Extraction du texte
-        ↓
-Nettoyage
-        ↓
-Découpage en chunks
-        ↓
-Génération des embeddings
-        ↓
-Indexation Qdrant
-```
-
-Les embeddings sont générés à l'aide de l'**API Gemini** (`gemini-embedding-001`) et les vecteurs sont stockés dans Qdrant afin de permettre une recherche par similarité sémantique.
-
----
-
-## 🛠️ Technologies
-
-| Composant              | Technologie           |
-| ---------------------- | --------------------- |
-| Backend                | FastAPI / Python      |
-| Frontend               | Next.js / React       |
-| Base relationnelle     | PostgreSQL            |
-| Base vectorielle       | Qdrant                |
-| ORM                    | SQLAlchemy            |
-| Embeddings             | Gemini API             |
-| LLM                    | Gemini API            |
-| Authentification       | JWT                   |
-| Sécurité mots de passe | bcrypt                |
-| Conteneurisation       | Docker                |
-| Tests                  | Pytest                |
-
----
-
-## 📁 Structure du projet
-
-Une organisation simplifiée du backend :
-
-```text
-bayania-backend/
-│
-├── app/
-│   ├── core/
-│   │   ├── config.py
-│   │   └── ...
-│   │
-│   ├── models/
-│   │   └── ...
-│   │
-│   ├── schemas/
-│   │   └── ...
-│   │
-│   ├── routers/
-│   │   ├── auth.py
-│   │   ├── admin.py
-│   │   ├── questions.py
-│   │   └── ...
-│   │
-│   ├── services/
-│   │   ├── rag_service.py
-│   │   ├── embedding_service.py
-│   │   ├── qdrant_service.py
-│   │   └── llm_service.py
-│   │
-│   └── ...
-│
-├── tests/
-│   ├── unit/
-│   │   ├── test_anonymisation.py
-│   │   ├── test_chunking.py
-│   │   ├── test_confidence.py
-│   │   └── test_security.py
-│   │
-│   └── integration/
-│       ├── test_auth.py
-│       ├── ...
-│       └── ...
-│
-├── docker/
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── README.md
-```
-
----
-
-## 🧪 Tests
-
-La validation de BayanIA est organisée en plusieurs niveaux.
-
-### Tests unitaires
-
-Les tests unitaires permettent de vérifier individuellement certains composants :
-
-* Anonymisation.
-* Découpage des documents.
-* Calcul du score de confiance.
-* Mécanismes de sécurité.
-
-Lancement :
+### 1. Cloner le dépôt
 
 ```bash
-pytest -m unit -v
+git clone https://github.com/houdasnd23-dev/BayanIA.git
+cd BayanIA
 ```
 
-### Tests d'intégration
-
-Les tests d'intégration permettent de vérifier les interactions entre les différents composants :
-
-* Authentification.
-* API.
-* Base de données.
-* Gestion des rôles.
-* Pipeline RAG.
-* Services externes.
-
-Lancement :
+### 2. Backend
 
 ```bash
-pytest -m integration -v
-```
-
-### Tous les tests
-
-```bash
-pytest -v
-```
-
----
-
-## 🐳 Installation avec Docker
-
-### Prérequis
-
-Avant de lancer le projet, installer :
-
-* Docker Desktop
-* Git
-* Python 3.13+ si nécessaire pour le développement local
-
-### Cloner le projet
-
-```bash
-git clone https://github.com/<username>/<repository>.git
-cd <repository>/bayania-backend
-```
-
-### Configuration
-
-Créer un fichier `.env` à partir du fichier d'exemple (à la racine de `bayania-backend/`) :
-
-```bash
+cd bayania-backend
 cp .env.example .env
 ```
 
-Puis configurer les variables nécessaires dans `bayania-backend/.env` :
-
-```env
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/bayania
-JWT_SECRET=...
-GEMINI_API_KEY=...
-QDRANT_URL=http://qdrant:6333
-QDRANT_API_KEY=...
-```
-
-⚠️ **Ne jamais publier le fichier `.env` ou les clés API dans le dépôt GitHub.**
-
-### Lancer les services
-
-Le `docker-compose.yml` se trouve dans `bayania-backend/docker/`. Depuis `bayania-backend/` :
+Configurer au minimum `GEMINI_API_KEY`, `GEMINI_GENERATION_API_KEY` et
+`JWT_SECRET` dans `.env`, puis :
 
 ```bash
 docker compose -f docker/docker-compose.yml --env-file .env up --build
 ```
 
-Les services principaux (PostgreSQL, Qdrant, API FastAPI) sont alors lancés dans des conteneurs séparés. L'API est ensuite accessible sur `http://localhost:8000`.
+- API : http://localhost:8000
+- Swagger : http://localhost:8000/docs
 
-Le frontend (`bayania-frontend/`) et l'application mobile (`bayania-mobile/`) se lancent séparément — voir leurs README respectifs.
+### 3. Frontend
 
----
-
-## 🔌 API
-
-Le backend expose une API REST développée avec FastAPI.
-
-Une fois le serveur lancé, la documentation interactive peut être consultée via :
-
-```text
-/docs
+```bash
+cd bayania-frontend
+npm install
+npm run dev
 ```
 
-Exemples de fonctionnalités :
+### 4. Mobile
 
-```text
-POST   /auth/register
-POST   /auth/login
-GET    /sources/{id}
-POST   /questions
-POST   /questions/{id}/pieces-jointes
-GET    /admin/utilisateurs
+```bash
+cd bayania-mobile
+npm install
+npx expo start
 ```
 
-Les routes protégées nécessitent une authentification et, selon la ressource, les permissions correspondantes.
+## Tests
 
----
+Depuis `bayania-backend/` :
 
-## 📊 Fonctionnalités principales
+```bash
+pytest -v
+```
 
-### 👤 Utilisateur
+Les tests unitaires couvrent notamment l'anonymisation, la sécurité, le chunking
+et le score de confiance. Les tests d'intégration couvrent l'API et les
+interactions entre composants, avec des dépendances externes simulées (Qdrant,
+Gemini).
 
-* Création de compte.
-* Authentification.
-* Pose de questions juridiques.
-* Consultation des réponses.
-* Consultation des références juridiques.
-* Consultation de l'historique.
+## Documentation technique
 
-### 👨‍💼 Administrateur
+La documentation détaillée de l'architecture, du backend, du pipeline RAG, de la
+sécurité, de la base de données, des tests et du déploiement est disponible dans
+[`DOCUMENTATION_TECHNIQUE.md`](./DOCUMENTATION_TECHNIQUE.md).
 
-* Gestion des utilisateurs.
-* Gestion du corpus documentaire.
-* Import de documents.
-* Supervision des données.
-* Gestion des ressources juridiques.
+## Déploiement
 
-### 🤖 Intelligence artificielle
+Architecture de production :
 
-* Recherche sémantique.
-* Retrieval-Augmented Generation.
-* Génération de réponses contextualisées.
-* Citation des références.
-* Calcul d'un score de confiance.
-* Anonymisation avant traitement par le LLM.
+```
+Vercel
+  |
+  v
+FastAPI sur Railway
+  |\
+  | \
+  v  v
+PostgreSQL  Qdrant Cloud
+      \
+       v
+      Gemini API
+```
 
----
+## Limites
 
-## 🚧 Limites actuelles
+La qualité des réponses dépend de la couverture et de la qualité du corpus
+juridique. Le score de confiance constitue un indicateur et ne garantit pas à lui
+seul l'exactitude juridique.
 
-La version actuelle constitue une première version fonctionnelle et présente encore certaines limites :
+## Perspectives — BayanIA V2
 
-* La qualité des réponses dépend de la qualité du corpus disponible.
-* La mise à jour automatique complète du corpus reste perfectible.
-* Le score de confiance constitue un indicateur et ne garantit pas l'exactitude juridique absolue.
-* Les performances dépendent notamment des services externes utilisés pour la génération.
-* Des mécanismes supplémentaires d'évaluation et de supervision peuvent encore être ajoutés.
+- amélioration et automatisation du corpus ;
+- reranking des passages après la fusion RRF ;
+- validation automatique des références ;
+- évaluation plus poussée de la qualité des réponses ;
+- renforcement de la sécurité et du monitoring ;
+- optimisation des performances et des coûts ;
+- amélioration de la couverture des tests (charge, end-to-end, PostgreSQL réel).
 
----
+> La recherche hybride lexicale + sémantique est **déjà implémentée** dans la
+> version actuelle et n'est donc pas listée comme fonctionnalité future.
 
-## 🚀 Perspectives — BayanIA V2
+## Stage
 
-Une future version pourrait intégrer :
-
-* 🔄 Mise à jour automatique du corpus juridique.
-* 🔎 Recherche hybride lexicale + sémantique.
-* 🎯 Reranking des passages récupérés.
-* ✅ Validation automatique des références juridiques.
-* 📈 Amélioration du système d'évaluation des réponses.
-* 🔐 Renforcement de la sécurité et des mécanismes de supervision.
-* 📱 Développement complet de l'application mobile.
-* ⚡ Optimisation des performances.
-* 💰 Réduction des coûts d'exploitation.
-* 📊 Monitoring et observabilité.
-* 🧪 Tests de sécurité et tests de pénétration réguliers.
-
----
-
-## 👩‍💻 Projet réalisé dans le cadre d'un stage
-
-**Projet :** BayanIA — Assistant juridique intelligent
-**Organisme d'accueil :** IAAI Academy
-**Établissement :** École Nationale des Sciences Appliquées d'El Jadida (ENSAJ)
-**Filière :** Cybersécurité et Confiance Numérique
-**Type de stage :** Stage d'initiation
-**Année :** 2026
-
----
-
-## 📄 Licence
-
-Ce projet a été développé dans un cadre académique.
-Les conditions d'utilisation, de modification et de distribution doivent être définies selon les besoins du projet.
+- **Projet :** BayanIA — Assistant juridique intelligent
+- **Organisme :** IAAI Academy
+- **Établissement :** ENSA El Jadida (Université Chouaïb Doukkali)
+- **Filière :** Cybersécurité et Confiance Numérique
+- **Année universitaire :** 2025–2026
