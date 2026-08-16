@@ -4,6 +4,7 @@
 **/*.pyc
 bayania-backend/venv/
 bayania-backend/env/
+desktop.ini
 
 # Backend env
 bayania-backend/**/.env
