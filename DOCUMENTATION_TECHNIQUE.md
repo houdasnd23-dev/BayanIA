@@ -447,8 +447,7 @@ npm install
 npm run dev
 ```
 
-Le frontend Next.js utilise les variables d'environnement locales prévues par
-son fichier `.env.example`.
+
 
 ### Mobile
 
@@ -497,42 +496,5 @@ QDRANT_URL=...
 QDRANT_API_KEY=...
 GEMINI_API_KEY=...
 GEMINI_GENERATION_API_KEY=...
-RAG_MIN_SCORE=0.35
 ```
 
-Les valeurs réelles ne doivent pas être publiées sur GitHub.
-
----
-
-## 16. Vérification finale avant remise
-
-- [ ] `git clone` fonctionne
-- [ ] backend démarre avec Docker
-- [ ] http://localhost:8000/docs est accessible
-- [ ] migrations Alembic appliquées
-- [ ] PostgreSQL fonctionne
-- [ ] Qdrant fonctionne
-- [ ] variables d'environnement configurées localement
-- [ ] frontend démarre avec `npm install && npm run dev`
-- [ ] tests unitaires exécutés
-- [ ] tests d'intégration exécutés
-- [ ] `pytest -v` exécuté une dernière fois
-- [ ] aucun secret présent dans GitHub
-- [ ] README racine à jour
-- [ ] documentation technique présente dans le dépôt
-- [ ] URL Vercel réelle renseignée dans la documentation de remise
-
----
-
-## 17. Limites et perspectives
-
-La version actuelle reste dépendante de la qualité et de la couverture du
-corpus juridique. Le score de confiance est un indicateur et ne constitue pas
-une preuve d'exactitude juridique absolue. Des améliorations restent possibles
-sur le reranking, la validation automatique des références, l'évaluation
-systématique des réponses, l'observabilité, la performance et la couverture
-des tests de sécurité.
-
-> La recherche hybride lexicale + sémantique fait partie de la version actuelle
-> et ne doit donc plus être présentée comme une fonctionnalité future dans la
-> documentation de la version livrée.
