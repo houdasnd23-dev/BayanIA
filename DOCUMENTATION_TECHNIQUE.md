@@ -271,10 +271,7 @@ Chaque donnée détectée est remplacée par un placeholder du type `[EMAIL_1]`,
 `[CIN_1]`, `[TELEPHONE_1]`, `[ADRESSE_1]` ou `[NOM_1]`. Le mapping est conservé
 en base afin d'assurer la traçabilité des données sensibles détectées.
 
-> ⚠️ La version actuelle **n'utilise pas spaCy**. Cette dépendance n'est ni
-> importée ni déclarée dans `requirements.txt` : elle ne doit donc pas être
-> présentée comme un composant du système livré, sauf si elle est réintroduite
-> et testée dans le code.
+
 
 ---
 
